@@ -1,5 +1,5 @@
 //
-//  ContentView.swift
+//  MainTabs.swift
 //  Exobook
 //
 //  Created by Alfred Lotsu on 21/10/2025.
@@ -11,7 +11,7 @@ enum ExoTab: Int, CaseIterable {
     case feed, explore, chats, profile
 }
 
-struct ContentView: View {
+struct MainTabs: View {
     @State private var selection: ExoTab = .feed
     @GestureState private var dragOffset: CGFloat = 0
 
@@ -78,5 +78,5 @@ private extension View {
 
 
 #Preview {
-    ContentView()
+    MainTabs()
 }

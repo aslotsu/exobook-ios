@@ -138,12 +138,12 @@ struct AuthPage: View {
                 redirectTo: redirectURL,
                 // On iOS you can ask the SDK to use an in-app web session:
                 // scopes & query params can be added here if needed
-                options: .init(
-                    // If you need additional scopes:
-                    // scopes: "email profile",
-                    // Prefer in-app browser session:
-                    prefersEphemeralSession: false
-                )
+//                options: .init(
+//                    // If you need additional scopes:
+//                    // scopes: "email profile",
+//                    // Prefer in-app browser session:
+//                    prefersEphemeralSession: false
+//                )
             )
             // Control returns after deep link completes (handled in App entry .onOpenURL)
         } catch {
