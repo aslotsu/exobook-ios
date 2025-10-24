@@ -14,6 +14,7 @@
 		08869EB52EA82B1A003CD6D3 /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = 08869EB42EA82B1A003CD6D3 /* Realtime */; };
 		08869EB72EA82B1A003CD6D3 /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = 08869EB62EA82B1A003CD6D3 /* Storage */; };
 		08869EB92EA82B1A003CD6D3 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 08869EB82EA82B1A003CD6D3 /* Supabase */; };
+		08CDCFE42EABAC1900C6B264 /* PusherSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 08CDCFE32EABAC1900C6B264 /* PusherSwift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,6 +41,7 @@
 				08869EB52EA82B1A003CD6D3 /* Realtime in Frameworks */,
 				08869E9C2EA823C2003CD6D3 /* SDWebImageSwiftUI in Frameworks */,
 				08869EB92EA82B1A003CD6D3 /* Supabase in Frameworks */,
+				08CDCFE42EABAC1900C6B264 /* PusherSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,6 +91,7 @@
 				08869EB42EA82B1A003CD6D3 /* Realtime */,
 				08869EB62EA82B1A003CD6D3 /* Storage */,
 				08869EB82EA82B1A003CD6D3 /* Supabase */,
+				08CDCFE32EABAC1900C6B264 /* PusherSwift */,
 			);
 			productName = Exobook;
 			productReference = 08869E8C2EA82155003CD6D3 /* Exobook.app */;
@@ -121,6 +124,7 @@
 			packageReferences = (
 				08869E9A2EA823C2003CD6D3 /* XCRemoteSwiftPackageReference "SDWebImageSwiftUI" */,
 				08869E9D2EA823E0003CD6D3 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+				08CDCFE22EABAC1900C6B264 /* XCRemoteSwiftPackageReference "pusher-websocket-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 08869E8D2EA82155003CD6D3 /* Products */;
@@ -374,6 +378,14 @@
 				minimumVersion = 2.5.1;
 			};
 		};
+		08CDCFE22EABAC1900C6B264 /* XCRemoteSwiftPackageReference "pusher-websocket-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pusher/pusher-websocket-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 10.1.6;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -411,6 +423,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 08869E9D2EA823E0003CD6D3 /* XCRemoteSwiftPackageReference "supabase-swift" */;
 			productName = Supabase;
+		};
+		08CDCFE32EABAC1900C6B264 /* PusherSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 08CDCFE22EABAC1900C6B264 /* XCRemoteSwiftPackageReference "pusher-websocket-swift" */;
+			productName = PusherSwift;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
