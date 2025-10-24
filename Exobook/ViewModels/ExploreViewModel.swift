@@ -15,6 +15,11 @@ class ExploreViewModel {
     private let searchService = SearchService()
     private let exobookAPI = ExobookAPIService()
     
+    // User context
+    let userId: String
+    let userYear: Int
+    let userCourses: [String]
+    
     // Search state
     var searchQuery = ""
     var searchResults: [SearchHit] = []
@@ -30,6 +35,12 @@ class ExploreViewModel {
     
     // Debounce timer
     private var searchTask: Task<Void, Never>?
+    
+    init(userId: String, year: Int, courses: [String]) {
+        self.userId = userId
+        self.userYear = year
+        self.userCourses = courses
+    }
     
     enum SearchTab: String, CaseIterable {
         case all = "All"
@@ -106,12 +117,11 @@ class ExploreViewModel {
         isLoadingRecommended = true
         
         do {
-            // For now, just load general posts
-            // TODO: Implement actual recommendation algorithm
+            // Load recommended posts based on user's courses
             let request = AllPostsRequest(
-                courses: ["General"],
-                year: 1,
-                id: "guest"
+                courses: userCourses.isEmpty ? ["General"] : userCourses,
+                year: userYear,
+                id: userId
             )
             
             recommendedPosts = try await exobookAPI.getAllPosts(request: request)

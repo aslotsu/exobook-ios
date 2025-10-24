@@ -11,8 +11,8 @@ enum APIConfig {
     // Base URLs for different services
     static let baseAPI = "https://api.exobook.ca"        // exo-be (Go backend with Postgres)
     static let likesAPI = "https://likes.exobook.ca"     // dynamodb-go-api (DynamoDB likes service)
-    static let searchAPI = "https://search.exobook.ca"   // Search service
-    static let search2API = "https://search2.exobook.ca" // Alternative search service
+    static let usersSearchAPI = "https://users2.exobook.ca"   // Typesense users collection
+    static let postsSearchAPI = "https://posts2.exobook.ca"   // Typesense posts collection
     static let chatAPI = "https://chats.exobook.ca"      // DynamoDB Chat Service (was localhost:9100)
     
     // Add new APIs here as needed
@@ -27,10 +27,10 @@ enum APIConfig {
             baseURL = baseAPI
         case .likes:
             baseURL = likesAPI
-        case .search:
-            baseURL = searchAPI
-        case .search2:
-            baseURL = search2API
+        case .usersSearch:
+            baseURL = usersSearchAPI
+        case .postsSearch:
+            baseURL = postsSearchAPI
         case .chat:
             baseURL = chatAPI
         }
@@ -42,8 +42,8 @@ enum APIConfig {
 enum APIService {
     case main
     case likes
-    case search
-    case search2
+    case usersSearch
+    case postsSearch
     case chat
     // Add new services here
 }

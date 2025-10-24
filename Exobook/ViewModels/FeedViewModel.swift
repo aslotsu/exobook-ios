@@ -13,6 +13,7 @@ import SwiftUI
 class FeedViewModel {
     private let exobookAPI = ExobookAPIService()
     private let likesAPI = LikesAPIService()
+    private let realtimeManager = RealtimeManager.shared
     
     // State
     var posts: [Post] = []
@@ -58,6 +59,9 @@ class FeedViewModel {
             
             posts = try await exobookAPI.getAllPosts(request: request)
             applyFilters()
+            
+            // Batch fetch counts from Redis
+            await loadBatchStats()
             
             // Load like states for current user
             await loadLikeStates()
@@ -151,17 +155,41 @@ class FeedViewModel {
         }
     }
     
-    func loadLikeStates() async {
+    func loadBatchStats() async {
+        guard !posts.isEmpty else { return }
+        
+        let postIds = posts.map { $0.id }
+        
         do {
-            let postIds = posts.map { $0.id }
-            let statuses = try await likesAPI.getBatchUserLikeStatus(
-                postIds: postIds,
-                userId: currentUserId
+            // Fetch like and comment counts in parallel
+            async let likeCounts = exobookAPI.getBatchLikeCounts(userId: currentUserId, postIds: postIds)
+            async let commentCounts = exobookAPI.getBatchCommentCounts(userId: currentUserId, postIds: postIds)
+            
+            let (likes, comments) = try await (likeCounts, commentCounts)
+            
+            // Initialize RealtimeManager with batch stats
+            realtimeManager.batchInitializeCounts(
+                likeCounts: likes,
+                commentCounts: comments,
+                posts: posts
             )
             
-            likedPostIds = Set(statuses.statuses.filter { $0.value }.keys)
+            print("📊 Batch loaded stats for \(postIds.count) posts")
         } catch {
-            print("Failed to load like states: \(error)")
+            print("⚠️ Failed to load batch stats: \(error)")
+            // Fallback to Post model data
+            realtimeManager.initializeCounts(posts: posts)
+        }
+    }
+    
+    func loadLikeStates() async {
+        // Note: Backend doesn't support batch like status checks
+        // We'll load like states on-demand or use post.likes array from API
+        // For now, just extract from post data
+        for post in posts {
+            if let likes = post.likes, likes.contains(currentUserId) {
+                likedPostIds.insert(post.id)
+            }
         }
     }
     

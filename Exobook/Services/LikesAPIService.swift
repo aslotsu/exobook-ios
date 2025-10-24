@@ -22,7 +22,7 @@ class LikesAPIService {
     
     /// Like a post
     func likePost(postId: String, userId: String) async throws -> EmptyResponse {
-        try await network.post("\(baseURL)/api/likes/post", body: LikeRequest(
+        try await network.post("\(baseURL)/api/likes/new", body: LikeRequest(
             postId: postId,
             userId: userId
         ))
@@ -30,34 +30,24 @@ class LikesAPIService {
     
     /// Unlike a post
     func unlikePost(postId: String, userId: String) async throws -> EmptyResponse {
-        try await network.delete("\(baseURL)/api/likes/post/\(postId)/user/\(userId)")
+        try await network.delete("\(baseURL)/api/likes/\(postId)/\(userId)")
     }
     
     /// Get post like count
     func getPostLikeCount(postId: String) async throws -> LikeCountResponse {
-        try await network.get("\(baseURL)/api/likes/post/\(postId)/count")
-    }
-    
-    /// Check if user liked a post
-    func hasUserLikedPost(postId: String, userId: String) async throws -> LikeStatusResponse {
-        try await network.get("\(baseURL)/api/likes/post/\(postId)/user/\(userId)")
-    }
-    
-    /// Get users who liked a post
-    func getPostLikers(postId: String) async throws -> LikersResponse {
-        try await network.get("\(baseURL)/api/likes/post/\(postId)/users")
+        try await network.get("\(baseURL)/api/likes/count/\(postId)")
     }
     
     /// Get all posts liked by a user
     func getUserLikedPosts(userId: String) async throws -> UserLikesResponse {
-        try await network.get("\(baseURL)/api/likes/user/\(userId)/posts")
+        try await network.get("\(baseURL)/api/likes/mine/\(userId)")
     }
     
     // MARK: - Comment/Reply Likes
     
     /// Like a comment
     func likeComment(commentId: String, userId: String) async throws -> EmptyResponse {
-        try await network.post("\(baseURL)/api/likes/comment", body: LikeRequest(
+        try await network.post("\(baseURL)/api/likes/new/comment", body: LikeRequest(
             postId: commentId,  // Using postId field for commentId
             userId: userId
         ))
@@ -65,33 +55,9 @@ class LikesAPIService {
     
     /// Unlike a comment
     func unlikeComment(commentId: String, userId: String) async throws -> EmptyResponse {
-        try await network.delete("\(baseURL)/api/likes/comment/\(commentId)/user/\(userId)")
+        try await network.delete("\(baseURL)/api/likes/c/\(commentId)/\(userId)")
     }
     
-    /// Get comment like count
-    func getCommentLikeCount(commentId: String) async throws -> LikeCountResponse {
-        try await network.get("\(baseURL)/api/likes/comment/\(commentId)/count")
-    }
-    
-    /// Check if user liked a comment
-    func hasUserLikedComment(commentId: String, userId: String) async throws -> LikeStatusResponse {
-        try await network.get("\(baseURL)/api/likes/comment/\(commentId)/user/\(userId)")
-    }
-    
-    // MARK: - Batch Operations
-    
-    /// Get like counts for multiple posts
-    func getBatchPostLikeCounts(postIds: [String]) async throws -> BatchLikeCountsResponse {
-        try await network.post("\(baseURL)/api/likes/batch/counts", body: BatchRequest(ids: postIds))
-    }
-    
-    /// Get user's like status for multiple posts
-    func getBatchUserLikeStatus(postIds: [String], userId: String) async throws -> BatchLikeStatusResponse {
-        try await network.post("\(baseURL)/api/likes/batch/status", body: BatchStatusRequest(
-            ids: postIds,
-            userId: userId
-        ))
-    }
 }
 
 // MARK: - Request Models

@@ -22,6 +22,8 @@ struct ChatsListView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(adaptiveBackground)
         .navigationTitle("Chats")
         .navigationDestination(for: ChatSummary.self) { chat in
             ChatThreadView(chat: chat, service: service)
@@ -47,6 +49,12 @@ struct ChatsListView: View {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+    
+    @Environment(\.colorScheme) private var colorScheme
+    
+    private var adaptiveBackground: Color {
+        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
     }
 }
 

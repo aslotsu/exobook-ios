@@ -30,6 +30,8 @@ class NetworkService {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 60
+        // Remove data size limits for large API responses
+        configuration.urlCache = URLCache(memoryCapacity: 50_000_000, diskCapacity: 100_000_000)
         self.session = URLSession(configuration: configuration)
         
         self.decoder = JSONDecoder()
@@ -95,7 +97,11 @@ class NetworkService {
         
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        // Only set Content-Type for methods that have bodies
+        if method != "GET" && method != "DELETE" {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         
         // Add custom headers
@@ -103,8 +109,8 @@ class NetworkService {
             request.setValue(value, forHTTPHeaderField: key)
         }
         
-        // Add body if present
-        if let body = body as? (any Encodable) {
+        // Add body if present and NOT a GET/DELETE request
+        if let body = body as? (any Encodable), method != "GET", method != "DELETE", !(body is EmptyBody) {
             do {
                 request.httpBody = try encoder.encode(body)
             } catch {

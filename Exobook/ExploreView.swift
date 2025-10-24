@@ -9,65 +9,98 @@
 import SwiftUI
 
 struct ExploreView: View {
-    @State private var viewModel = ExploreViewModel()
+    @Environment(\.currentUser) private var currentUser
+    @State private var viewModel: ExploreViewModel?
     @FocusState private var isSearchFocused: Bool
     
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Search bar
-                searchBar
-                
-                // Tab filter (only show when searching)
-                if !viewModel.searchQuery.isEmpty {
-                    tabFilter
-                }
-                
-                // Content
-                ScrollView {
-                    LazyVStack(spacing: 16) {
-                        if viewModel.isSearching {
-                            // Loading state
-                            ProgressView()
-                                .padding()
-                        } else if viewModel.shouldShowEmptyState {
-                            // Empty search results
-                            emptySearchState
-                        } else if !viewModel.searchQuery.isEmpty {
-                            // Search results
-                            searchResults
-                        } else {
-                            // Recommended content when not searching
-                            recommendedSection
-                        }
+            Group {
+                if let viewModel = viewModel {
+                    exploreContent(viewModel: viewModel)
+                } else if let user = currentUser {
+                    Color.clear.onAppear {
+                        initializeViewModel(for: user)
                     }
-                    .padding()
+                } else {
+                    Text("User not found")
                 }
             }
             .navigationTitle("Explore")
-            .task {
-                await viewModel.loadRecommendedContent()
-            }
         }
+    }
+    
+    @ViewBuilder
+    private func exploreContent(viewModel: ExploreViewModel) -> some View {
+        VStack(spacing: 0) {
+            // Search bar
+            searchBar(viewModel: viewModel)
+            
+            // Tab filter (only show when searching)
+            if !viewModel.searchQuery.isEmpty {
+                tabFilter(viewModel: viewModel)
+            }
+            
+            // Content
+            ScrollView {
+                LazyVStack(spacing: 16) {
+                    if viewModel.isSearching {
+                        // Loading state
+                        ProgressView()
+                            .padding()
+                    } else if viewModel.shouldShowEmptyState {
+                        // Empty search results
+                        emptySearchState
+                    } else if !viewModel.searchQuery.isEmpty {
+                        // Search results
+                        searchResults(viewModel: viewModel)
+                    } else {
+                        // Recommended content when not searching
+                        recommendedSection(viewModel: viewModel)
+                    }
+                }
+                .padding()
+            }
+            .background(adaptiveBackground)
+        }
+        .task {
+            await viewModel.loadRecommendedContent()
+        }
+    }
+    
+    @Environment(\.colorScheme) private var colorScheme
+    
+    private var adaptiveBackground: Color {
+        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
+    }
+    
+    private func initializeViewModel(for user: User) {
+        let courseCodes = user.courseCodes
+        viewModel = ExploreViewModel(
+            userId: user.id,
+            year: user.year ?? 1,
+            courses: courseCodes.isEmpty ? ["General"] : courseCodes
+        )
     }
     
     // MARK: - Search Bar
     
-    private var searchBar: some View {
-        HStack(spacing: 12) {
+    private func searchBar(viewModel: ExploreViewModel) -> some View {
+        @Bindable var vm = viewModel
+        return HStack(spacing: 12) {
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.secondary)
                 
-                TextField("Search users, posts...", text: $viewModel.searchQuery)
+                TextField("Search users, posts...", text: $vm.searchQuery)
                     .focused($isSearchFocused)
                     .textFieldStyle(.plain)
-                    .onChange(of: viewModel.searchQuery) {
-                        viewModel.performSearch()
+                    .onChange(of: vm.searchQuery) {
+                        vm.performSearch()
                     }
                 
-                if !viewModel.searchQuery.isEmpty {
-                    Button(action: { viewModel.clearSearch() }) {
+                if !vm.searchQuery.isEmpty {
+                    Button(action: { vm.clearSearch() }) {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary)
                     }
@@ -77,9 +110,9 @@ struct ExploreView: View {
             .background(Color(uiColor: .secondarySystemBackground))
             .cornerRadius(10)
             
-            if isSearchFocused || !viewModel.searchQuery.isEmpty {
+            if isSearchFocused || !vm.searchQuery.isEmpty {
                 Button("Cancel") {
-                    viewModel.clearSearch()
+                    vm.clearSearch()
                     isSearchFocused = false
                 }
                 .transition(.move(edge: .trailing))
@@ -92,23 +125,24 @@ struct ExploreView: View {
     
     // MARK: - Tab Filter
     
-    private var tabFilter: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+    private func tabFilter(viewModel: ExploreViewModel) -> some View {
+        @Bindable var vm = viewModel
+        return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
                 ForEach(ExploreViewModel.SearchTab.allCases, id: \.self) { tab in
-                    Button(action: { viewModel.selectedTab = tab }) {
+                    Button(action: { vm.selectedTab = tab }) {
                         Text(tab.rawValue)
                             .font(.subheadline)
-                            .fontWeight(viewModel.selectedTab == tab ? .semibold : .regular)
+                            .fontWeight(vm.selectedTab == tab ? .semibold : .regular)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
                             .background(
-                                viewModel.selectedTab == tab
+                                vm.selectedTab == tab
                                     ? Color.blue
                                     : Color(uiColor: .secondarySystemBackground)
                             )
                             .foregroundColor(
-                                viewModel.selectedTab == tab
+                                vm.selectedTab == tab
                                     ? .white
                                     : .primary
                             )
@@ -123,7 +157,7 @@ struct ExploreView: View {
     
     // MARK: - Search Results
     
-    private var searchResults: some View {
+    private func searchResults(viewModel: ExploreViewModel) -> some View {
         VStack(spacing: 16) {
             // Results count
             HStack {
@@ -162,7 +196,7 @@ struct ExploreView: View {
     
     // MARK: - Recommended Section
     
-    private var recommendedSection: some View {
+    private func recommendedSection(viewModel: ExploreViewModel) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Recommended for you")
                 .font(.title2)

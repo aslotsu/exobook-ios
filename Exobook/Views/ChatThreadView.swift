@@ -27,6 +27,7 @@ struct ChatThreadView: View {
                 .padding(.vertical, 8)
                 .background(.ultraThinMaterial)
         }
+        .background(adaptiveBackground)
         .navigationTitle(chat.title)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
@@ -103,6 +104,12 @@ struct ChatThreadView: View {
                 keyboardPadding = padding
             }
         }
+    }
+    
+    @Environment(\.colorScheme) private var colorScheme
+    
+    private var adaptiveBackground: Color {
+        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
     }
 }
 

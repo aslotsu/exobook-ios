@@ -8,7 +8,7 @@
 import SwiftUI
 
 enum ExoTab: Int, CaseIterable {
-    case feed, explore, chats, profile
+    case feed, explore, notifications, chats, profile
 }
 
 struct MainTabs: View {
@@ -26,6 +26,11 @@ struct MainTabs: View {
                 .embedInNav(title: "Explore")
                 .tabItem { Label("Explore", systemImage: "magnifyingglass") }
                 .tag(ExoTab.explore)
+            
+            NotificationsView()
+                .embedInNav(title: "Notifications")
+                .tabItem { Label("Notifications", systemImage: "bell") }
+                .tag(ExoTab.notifications)
 
             ChatsView()
                 .embedInNav(title: "Chats")

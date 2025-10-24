@@ -19,7 +19,8 @@ class ExobookAPIService {
     }
     
     func getAllPosts(request: AllPostsRequest) async throws -> [Post] {
-        try await network.post("\(baseURL)/api/post/all", body: request)
+        let response: PostsResponse = try await network.post("\(baseURL)/api/post/all", body: request)
+        return response.posts
     }
     
     func getUserPosts(userId: String) async throws -> [Post] {
@@ -44,6 +45,23 @@ class ExobookAPIService {
     
     func unlikePost(id: String, userId: String) async throws -> EmptyResponse {
         try await network.patch("\(baseURL)/api/post/\(id)/\(userId)", body: EmptyBody())
+    }
+    
+    // MARK: - Redis Stats (Batch Fetching)
+    
+    func getBatchLikeCounts(userId: String, postIds: [String]) async throws -> [String: Int] {
+        let request = BatchStatsRequest(postIds: postIds)
+        return try await network.post("\(baseURL)/redis/likes/mine/\(userId)", body: request)
+    }
+    
+    func getBatchCommentCounts(userId: String, postIds: [String]) async throws -> [String: Int] {
+        let request = BatchCommentStatsRequest(commentIds: postIds)
+        return try await network.post("\(baseURL)/redis/likes/mine/comment/\(userId)", body: request)
+    }
+    
+    func getPostStats(postId: String) async throws -> PostStats {
+        let response: PostStatsResponse = try await network.get("\(baseURL)/redis/stats/\(postId)")
+        return response.stats
     }
     
     // MARK: - Replies
@@ -79,6 +97,11 @@ class ExobookAPIService {
     }
     
     func getUser(id: String) async throws -> User {
+        try await network.get("\(baseURL)/api/users/\(id)")
+    }
+    
+    func getUserWithCourses(id: String) async throws -> User {
+        // This will fetch user with their enrolled courses
         try await network.get("\(baseURL)/api/users/\(id)")
     }
     
@@ -162,8 +185,9 @@ class ExobookAPIService {
         try await network.get("\(baseURL)/api/courses/\(universityId)")
     }
     
-    func getMyCourses(userId: String) async throws -> [Course] {
-        try await network.get("\(baseURL)/api/courses/user/\(userId)")
+    func getMyCourses(userId: String) async throws -> [UserCourseItem] {
+        let response: UserCoursesResponse = try await network.get("\(baseURL)/api/courses/user/\(userId)")
+        return response.list
     }
 }
 
@@ -190,11 +214,18 @@ struct UpdatePostRequest: Encodable {
     let content: String?
 }
 
+struct PostsResponse: Codable {
+    let posts: [Post]
+    let hasMore: Bool
+    let page: Int
+    let limit: Int
+}
+
 struct Post: Codable, Identifiable {
     let id: String
     let userId: String
     let username: String
-    let userName: String
+    let userName: String?
     let userBio: String
     let userCampus: String
     let userProgramme: String
@@ -204,18 +235,23 @@ struct Post: Codable, Identifiable {
     let content: String
     let subject: String  // course_code
     let images: [String]
-    let likes: [String]
-    let comments: [String]
+    let likes: [String]?
+    let comments: [String]?
     let createdAt: Date
     let updatedAt: Date
     
     // Computed properties
-    var likeCount: Int { likes.count }
-    var commentCount: Int { comments.count }
+    var likeCount: Int { likes?.count ?? 0 }
+    var commentCount: Int { comments?.count ?? 0 }
     var userAvatarURL: URL? {
         if userPicture.starts(with: "http") {
             return URL(string: userPicture)
         }
+        // If path starts with /, it's a static asset from exobook.ca
+        if userPicture.starts(with: "/") {
+            return URL(string: "https://exobook.ca\(userPicture)")
+        }
+        // Otherwise it's from S3
         return URL(string: "https://exobook.s3.amazonaws.com/\(userPicture)")
     }
     var imageURLs: [URL] {
@@ -260,14 +296,6 @@ struct UpdateUserRequest: Encodable {
     let id: String
     let name: String?
     let bio: String?
-}
-
-struct User: Codable, Identifiable {
-    let id: String
-    let email: String
-    let name: String
-    let bio: String?
-    let campus: String?
 }
 
 // Shopping
@@ -325,4 +353,51 @@ struct Course: Codable, Identifiable {
     let id: String
     let name: String
     let code: String
+}
+
+struct UserCoursesResponse: Codable {
+    let id: String
+    let list: [UserCourseItem]
+}
+
+struct UserCourseItem: Codable {
+    let courseCode: String
+    let courseName: String
+    let programName: String
+    let year: String
+    
+    enum CodingKeys: String, CodingKey {
+        case courseCode = "course_code"
+        case courseName = "course_name"
+        case programName = "program_name"
+        case year
+    }
+}
+
+// Redis Stats
+struct BatchStatsRequest: Encodable {
+    let postIds: [String]
+    
+    // For likes endpoint
+    enum CodingKeys: String, CodingKey {
+        case postIds = "post_ids"
+    }
+}
+
+struct BatchCommentStatsRequest: Encodable {
+    let commentIds: [String]
+    
+    // For comments endpoint
+    enum CodingKeys: String, CodingKey {
+        case commentIds = "comment_ids"
+    }
+}
+
+struct PostStatsResponse: Codable {
+    let stats: PostStats
+}
+
+struct PostStats: Codable {
+    let likes: Int
+    let replies: Int
 }

@@ -13,9 +13,20 @@ struct SearchResultCard: View {
     
     var body: some View {
         if hit.document.isUserResult {
-            UserSearchResult(hit: hit)
+            NavigationLink(destination: UserProfileView(userId: hit.document.id)) {
+                UserSearchResult(hit: hit)
+            }
+            .buttonStyle(.plain)
         } else {
-            PostSearchResult(hit: hit)
+            // For post results, we need to create a full Post object
+            if let post = hit.document.toPost() {
+                NavigationLink(destination: PostDetailView(post: post)) {
+                    PostSearchResult(hit: hit)
+                }
+                .buttonStyle(.plain)
+            } else {
+                PostSearchResult(hit: hit)
+            }
         }
     }
 }
@@ -42,10 +53,10 @@ struct UserSearchResult: View {
             
             // User info
             VStack(alignment: .leading, spacing: 4) {
-                Text(hit.document.userName)
+                Text(hit.document.displayName)
                     .font(.headline)
                 
-                if let bio = hit.document.userBio {
+                if let bio = hit.document.displayBio {
                     Text(bio)
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -53,14 +64,14 @@ struct UserSearchResult: View {
                 }
                 
                 HStack(spacing: 4) {
-                    if let campus = hit.document.userCampus {
+                    if let campus = hit.document.displayCampus {
                         Text(campus)
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
                     
-                    if let programme = hit.document.userProgramme {
-                        if hit.document.userCampus != nil {
+                    if let programme = hit.document.displayProgramme {
+                        if hit.document.displayCampus != nil {
                             Text("•")
                                 .foregroundColor(.secondary)
                         }
@@ -89,7 +100,7 @@ struct PostSearchResult: View {
     let hit: SearchHit
     
     var highlightSnippet: String? {
-        hit.highlights?.values.first?.snippet
+        hit.highlightSnippet
     }
     
     var body: some View {
@@ -109,7 +120,7 @@ struct PostSearchResult: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(hit.document.userName)
+                    Text(hit.document.displayName)
                         .font(.subheadline)
                         .fontWeight(.medium)
                     
@@ -165,12 +176,18 @@ struct PostSearchResult: View {
             hit: SearchHit(
                 document: SearchDocument(
                     id: "1",
-                    userId: "user1",
-                    userName: "John Doe",
-                    userBio: "Computer Science Student",
-                    userPicture: "https://via.placeholder.com/150",
-                    userCampus: "Main Campus",
-                    userProgramme: "CS",
+                    name: "John Doe",
+                    username: "johndoe",
+                    bio: "Computer Science Student",
+                    picture: "https://via.placeholder.com/150",
+                    campus: "Main Campus",
+                    program: "CS",
+                    userId: nil,
+                    userName: nil,
+                    userBio: nil,
+                    userPicture: nil,
+                    userCampus: nil,
+                    userProgramme: nil,
                     title: nil,
                     content: nil,
                     subject: nil
@@ -184,6 +201,12 @@ struct PostSearchResult: View {
             hit: SearchHit(
                 document: SearchDocument(
                     id: "2",
+                    name: nil,
+                    username: nil,
+                    bio: nil,
+                    picture: nil,
+                    campus: nil,
+                    program: nil,
                     userId: "user2",
                     userName: "Jane Smith",
                     userBio: "Engineering Student",

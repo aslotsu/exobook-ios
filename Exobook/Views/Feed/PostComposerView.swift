@@ -75,6 +75,7 @@ struct PostComposerView: View {
                 }
                 .padding()
             }
+            .background(adaptiveBackground)
             .navigationTitle("New Post")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -97,6 +98,12 @@ struct PostComposerView: View {
                 }
             }
         }
+    }
+    
+    @Environment(\.colorScheme) private var colorScheme
+    
+    private var adaptiveBackground: Color {
+        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
     }
     
     private func postQuestion() {

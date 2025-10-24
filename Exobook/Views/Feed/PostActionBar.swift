@@ -17,6 +17,19 @@ struct PostActionBar: View {
     let onShowComments: () -> Void
     let showingComments: Bool
     
+    private let realtimeManager = RealtimeManager.shared
+    
+    // Computed counts: RealtimeManager takes priority, fallback to Post model
+    private var likeCount: Int {
+        let rtCount = realtimeManager.getLikeCount(for: post.id)
+        return rtCount > 0 ? rtCount : post.likeCount
+    }
+    
+    private var commentCount: Int {
+        let rtCount = realtimeManager.getCommentCount(for: post.id)
+        return rtCount > 0 ? rtCount : post.commentCount
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
             Divider()
@@ -27,7 +40,7 @@ struct PostActionBar: View {
                     HStack(spacing: 4) {
                         Image(systemName: isLiked ? "heart.fill" : "heart")
                             .foregroundColor(isLiked ? .red : .primary)
-                        Text("\(post.likeCount)")
+                        Text("\(likeCount)")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -38,7 +51,7 @@ struct PostActionBar: View {
                 Button(action: onComment) {
                     HStack(spacing: 4) {
                         Image(systemName: "bubble.right")
-                        Text("\(post.commentCount)")
+                        Text("\(commentCount)")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
