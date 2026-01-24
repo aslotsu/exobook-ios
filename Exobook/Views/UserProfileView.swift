@@ -10,7 +10,9 @@ import SDWebImageSwiftUI
 
 struct UserProfileView: View {
     let userId: String
+    @Environment(\.currentUser) private var currentUser
     @State private var viewModel: UserProfileViewModel?
+    @State private var selectedPost: Post?
     
     var body: some View {
         ScrollView {
@@ -38,6 +40,9 @@ struct UserProfileView: View {
                 viewModel = UserProfileViewModel(userId: userId)
                 await viewModel?.loadUserData()
             }
+        }
+        .sheet(item: $selectedPost) { post in
+            PostDetailView(post: post)
         }
     }
     
@@ -136,17 +141,19 @@ struct UserProfileView: View {
                     .padding()
             } else {
                 ForEach(viewModel.posts) { post in
-                    NavigationLink(destination: PostDetailView(post: post)) {
-                        PostCard(
-                            post: post,
-                            isLiked: false,
-                            isBookmarked: false,
-                            onLike: {},
-                            onComment: {},
-                            onBookmark: {}
-                        )
+                    PostCard(
+                        post: post,
+                        currentUserId: currentUser?.id ?? "",
+                        isBookmarked: false,
+                        onLike: {},
+                        onComment: {},
+                        onBookmark: {},
+                        onDelete: {},
+                        onReport: {}
+                    )
+                    .onTapGesture {
+                        selectedPost = post
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -177,11 +184,17 @@ class UserProfileViewModel {
             
             // Load user posts
             isLoadingPosts = true
-            // TODO: Add API method to get user's posts
-            // For now, we'll leave it empty
+            do {
+                posts = try await api.getUserPosts(userId: userId)
+                print("✅ Loaded \(posts.count) posts for user \(userId)")
+            } catch {
+                print("❌ Failed to load posts for user \(userId): \(error)")
+                posts = []
+            }
             isLoadingPosts = false
         } catch {
             print("Failed to load user data: \(error)")
+            isLoadingPosts = false
         }
     }
 }

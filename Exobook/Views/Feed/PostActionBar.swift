@@ -9,25 +9,38 @@ import SwiftUI
 
 struct PostActionBar: View {
     let post: Post
-    let isLiked: Bool
     let isBookmarked: Bool
     let onLike: () -> Void
     let onComment: () -> Void
     let onBookmark: () -> Void
-    let onShowComments: () -> Void
-    let showingComments: Bool
+
+    @Environment(\.currentUser) private var currentUser
     
-    private let realtimeManager = RealtimeManager.shared
-    
-    // Computed counts: RealtimeManager takes priority, fallback to Post model
+    init(
+        post: Post,
+        isBookmarked: Bool,
+        onLike: @escaping () -> Void,
+        onComment: @escaping () -> Void,
+        onBookmark: @escaping () -> Void
+    ) {
+        self.post = post
+        self.isBookmarked = isBookmarked
+        self.onLike = onLike
+        self.onComment = onComment
+        self.onBookmark = onBookmark
+    }
+
     private var likeCount: Int {
-        let rtCount = realtimeManager.getLikeCount(for: post.id)
-        return rtCount > 0 ? rtCount : post.likeCount
+        post.likeCount
+    }
+
+    private var commentCount: Int {
+        post.commentCount
     }
     
-    private var commentCount: Int {
-        let rtCount = realtimeManager.getCommentCount(for: post.id)
-        return rtCount > 0 ? rtCount : post.commentCount
+    private var isLiked: Bool {
+        guard let userId = currentUser?.id else { return false }
+        return post.likes?.contains(userId) ?? false
     }
     
     var body: some View {
@@ -35,22 +48,27 @@ struct PostActionBar: View {
             Divider()
             
             HStack(spacing: 20) {
-                // Like button
+                // Like button with animation
                 Button(action: onLike) {
                     HStack(spacing: 4) {
                         Image(systemName: isLiked ? "heart.fill" : "heart")
-                            .foregroundColor(isLiked ? .red : .primary)
+                            .foregroundStyle(isLiked ? .red : .primary)
+                            .font(.system(size: 18))
+                            .symbolEffect(.bounce, value: isLiked)
                         Text("\(likeCount)")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .fontWeight(isLiked ? .semibold : .regular)
+                            .foregroundStyle(isLiked ? .red : .secondary)
                     }
                 }
                 .buttonStyle(.plain)
+                .sensoryFeedback(.success, trigger: isLiked)
                 
                 // Comment button
                 Button(action: onComment) {
                     HStack(spacing: 4) {
                         Image(systemName: "bubble.right")
+                            .font(.system(size: 18))
                         Text("\(commentCount)")
                             .font(.caption)
                             .foregroundColor(.secondary)
@@ -60,20 +78,15 @@ struct PostActionBar: View {
                 
                 Spacer()
                 
-                // Show/Hide comments button
-                Button(action: onShowComments) {
-                    Text(showingComments ? "Hide Comments" : "Show Comments")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                
-                // Bookmark button
+                // Bookmark button with animation
                 Button(action: onBookmark) {
                     Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
-                        .foregroundColor(isBookmarked ? .blue : .primary)
+                        .foregroundStyle(isBookmarked ? .blue : .primary)
+                        .font(.system(size: 18))
+                        .symbolEffect(.bounce, value: isBookmarked)
                 }
                 .buttonStyle(.plain)
+                .sensoryFeedback(.success, trigger: isBookmarked)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -82,32 +95,43 @@ struct PostActionBar: View {
 }
 
 #Preview {
-    PostActionBar(
-        post: Post(
-            id: "1",
-            userId: "user1",
-            username: "johndoe",
-            userName: "John Doe",
-            userBio: "Student",
-            userCampus: "Main Campus",
-            userProgramme: "Computer Science",
-            userYear: 2,
-            userPicture: "avatar.jpg",
-            title: "Test Post",
-            content: "This is a test",
-            subject: "CS101",
-            images: [],
-            likes: ["1", "2", "3"],
-            comments: ["c1", "c2"],
-            createdAt: Date(),
-            updatedAt: Date()
-        ),
-        isLiked: false,
+    // Create a Post instance using a JSON decoder for preview
+    // This works around the custom init(from:) requirement
+    func createPreviewPost() -> Post {
+        let jsonString = """
+        {
+            "id": "1",
+            "user_id": "user1",
+            "username": "johndoe",
+            "user_name": "John Doe",
+            "user_bio": "Student",
+            "user_campus": "Main Campus",
+            "user_programme": "Computer Science",
+            "user_year": 2,
+            "user_picture": "avatar.jpg",
+            "title": "Test Post",
+            "content": "This is a test",
+            "subject": "CS101",
+            "images": [],
+            "likes": ["1", "2", "3"],
+            "comments": ["c1", "c2"],
+            "created_at": "2024-01-13T10:00:00Z",
+            "updated_at": "2024-01-13T10:00:00Z"
+        }
+        """
+        
+        let jsonData = jsonString.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        
+        return try! decoder.decode(Post.self, from: jsonData)
+    }
+    
+    return PostActionBar(
+        post: createPreviewPost(),
         isBookmarked: false,
         onLike: {},
         onComment: {},
-        onBookmark: {},
-        onShowComments: {},
-        showingComments: false
+        onBookmark: {}
     )
 }

@@ -19,9 +19,10 @@ struct ExploreView: View {
                 if let viewModel = viewModel {
                     exploreContent(viewModel: viewModel)
                 } else if let user = currentUser {
-                    Color.clear.onAppear {
-                        initializeViewModel(for: user)
-                    }
+                    ProgressView("Loading...")
+                        .task {
+                            initializeViewModel(for: user)
+                        }
                 } else {
                     Text("User not found")
                 }
@@ -76,11 +77,16 @@ struct ExploreView: View {
     
     private func initializeViewModel(for user: User) {
         let courseCodes = user.courseCodes
-        viewModel = ExploreViewModel(
+        let newViewModel = ExploreViewModel(
             userId: user.id,
             year: user.year ?? 1,
             courses: courseCodes.isEmpty ? ["General"] : courseCodes
         )
+        
+        Task { @MainActor in
+            viewModel = newViewModel
+            print("✅ ExploreViewModel initialized for user: \(user.id)")
+        }
     }
     
     // MARK: - Search Bar
@@ -215,11 +221,13 @@ struct ExploreView: View {
                 ForEach(viewModel.recommendedPosts.prefix(10)) { post in
                     PostCard(
                         post: post,
-                        isLiked: false,
+                        currentUserId: currentUser?.id ?? "",
                         isBookmarked: false,
                         onLike: {},
                         onComment: {},
-                        onBookmark: {}
+                        onBookmark: {},
+                        onDelete: {},
+                        onReport: {}
                     )
                 }
             }

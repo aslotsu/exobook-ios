@@ -14,10 +14,32 @@ class SearchService {
     private let postsSearchURL = APIConfig.postsSearchAPI
     
     private var typesenseAPIKey: String {
-        ProcessInfo.processInfo.environment["TYPESENSE_API_KEY"] ?? ""
+        let key = ProcessInfo.processInfo.environment["TYPESENSE_API_KEY"] ?? ""
+        if key.isEmpty {
+            print("⚠️ TYPESENSE_API_KEY not set - search functionality will be limited")
+        }
+        return key
+    }
+    
+    private var isSearchAvailable: Bool {
+        !typesenseAPIKey.isEmpty
     }
     
     func search(query: String) async throws -> SearchResponse {
+        // If API key is not available, return empty results instead of crashing
+        guard isSearchAvailable else {
+            print("⚠️ Search unavailable: TYPESENSE_API_KEY not configured")
+            return SearchResponse(
+                facetCounts: [],
+                found: 0,
+                outOf: 0,
+                page: 1,
+                requestParams: RequestParams(collectionName: "combined", perPage: 0, q: query),
+                searchTimeMs: 0,
+                hits: []
+            )
+        }
+        
         let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
         
         let headers = ["x-typesense-api-key": typesenseAPIKey]
@@ -213,7 +235,7 @@ struct SearchDocument: Codable {
             return URL(string: "https://exobook.ca\(pictureString)")
         }
         if !pictureString.isEmpty {
-            return URL(string: "https://exobook.s3.amazonaws.com/\(pictureString)")
+            return URL(string: "https://exobook.amazonaws.com/\(pictureString)")
         }
         return nil
     }
@@ -227,25 +249,32 @@ struct SearchDocument: Codable {
               let subject = subject
         else { return nil }
         
-        return Post(
-            id: id,
-            userId: userId,
-            username: userName,
-            userName: userName,
-            userBio: userBio ?? "",
-            userCampus: userCampus ?? "",
-            userProgramme: userProgramme ?? "",
-            userYear: 0,
-            userPicture: userPicture,
-            title: title ?? "",
-            content: content,
-            subject: subject,
-            images: [],
-            likes: [],
-            comments: [],
-            createdAt: Date(),
-            updatedAt: Date()
-        )
+        // Create a Post instance using JSON decoding to work around custom init(from:)
+        let postDict: [String: Any] = [
+            "id": id,
+            "user_id": userId,
+            "username": userName,
+            "user_name": userName,
+            "user_bio": userBio ?? "",
+            "user_campus": userCampus ?? "",
+            "user_programme": userProgramme ?? "",
+            "user_year": 0,
+            "user_picture": userPicture,
+            "title": title ?? "",
+            "content": content,
+            "subject": subject,
+            "images": [],
+            "likes": [],
+            "comments": [],
+            "created_at": ISO8601DateFormatter().string(from: Date()),
+            "updated_at": ISO8601DateFormatter().string(from: Date())
+        ]
+        
+        let jsonData = try! JSONSerialization.data(withJSONObject: postDict)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        
+        return try! decoder.decode(Post.self, from: jsonData)
     }
     
     enum CodingKeys: String, CodingKey {

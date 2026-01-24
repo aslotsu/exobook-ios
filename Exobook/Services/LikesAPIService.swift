@@ -65,6 +65,11 @@ class LikesAPIService {
 struct LikeRequest: Encodable {
     let postId: String
     let userId: String
+    
+    enum CodingKeys: String, CodingKey {
+        case postId = "post_id"
+        case userId = "user_id"
+    }
 }
 
 struct BatchRequest: Encodable {
@@ -98,9 +103,61 @@ struct LikersResponse: Codable {
     let users: [String]
 }
 
-struct UserLikesResponse: Codable {
+struct UserLikesResponse: Decodable {
+    let likes: [LikeItem]
+    
+    var posts: [String] {
+        likes.map { $0.postId }
+    }
+    
+    // Custom decoding to handle potential API response variations
+    init(from decoder: Decoder) throws {
+        // 1. Try to decode as a keyed container (standard object)
+        if let container = try? decoder.container(keyedBy: CodingKeys.self) {
+            // Check for "likes" key
+            if let likes = try? container.decode([LikeItem].self, forKey: .likes) {
+                self.likes = likes
+                return
+            }
+            // Check for "data" key (common API pattern)
+            if let data = try? container.decode([LikeItem].self, forKey: .data) {
+                self.likes = data
+                return
+            }
+        }
+        
+        // 2. Try to decode as a direct array (root level array)
+        // Note: decode([LikeItem].self) on singleValueContainer handles root array
+        if let singleValue = try? decoder.singleValueContainer(),
+           let likesArray = try? singleValue.decode([LikeItem].self) {
+            self.likes = likesArray
+            return
+        }
+        
+        // 3. Fallback: Return empty list instead of crashing, but log it
+        print("⚠️ UserLikesResponse: Failed to find 'likes', 'data' or root array. Defaulting to empty.")
+        self.likes = []
+    }
+    
+    // Add data key to CodingKeys to support the keyed decoding above
+    enum CodingKeys: String, CodingKey {
+        case likes
+        case data
+    }
+}
+
+struct LikeItem: Codable {
+    let id: String
+    let postId: String
     let userId: String
-    let posts: [String]
+    let up: Bool
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case postId = "post_id"
+        case userId = "user_id"
+        case up
+    }
 }
 
 struct BatchLikeCountsResponse: Codable {

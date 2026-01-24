@@ -8,16 +8,29 @@
 import Foundation
 import PusherSwift
 import Observation
+import Combine
 
 @MainActor
 @Observable
 final class RealtimeManager {
     static let shared = RealtimeManager()
-    
+
+    // Subjects
+    let newPostSubject = PassthroughSubject<Post, Never>()
+
+    // Helpers
+    private let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601 // Matches NetworkService
+        return decoder
+    }()
+
+
     // State
     private var pusher: Pusher!
     private var currentUserId: String?
-    
+    private let cacheManager = StatsCacheManager.shared
+
     // Channels
     private var postsChannel: PusherChannel?
     private var commentsChannel: PusherChannel?
@@ -25,18 +38,21 @@ final class RealtimeManager {
     private var repliesChannel: PusherChannel?
     private var chatsChannel: PusherChannel?
     private var userChatChannel: PusherChannel?
-    
-    // Counts dictionaries (postId: count)
+
+    // Counts dictionaries (postId: count) - in-memory for fast access
     var likeCount: [String: Int] = [:]
     var commentCount: [String: Int] = [:]
     var replyLikeCount: [String: Int] = [:]
     var replyCount: [String: Int] = [:]
-    
+
     // Like tracking (to determine if current user liked)
     var likedPostIds: Set<String> = []
     var likedCommentIds: Set<String> = []
-    
-    private init() {}
+
+    private init() {
+        // Load cached stats into memory on init
+        loadCachedStats()
+    }
     
     // MARK: - Setup
     
@@ -68,83 +84,219 @@ final class RealtimeManager {
     private func setupEventHandlers() {
         guard let currentUserId = currentUserId else { return }
         
-        // Post Likes
-        likesChannel?.bind(eventName: "POST_LIKE") { [weak self] data in
+        print("🔧 Setting up Pusher event handlers for user: \(currentUserId)")
+        
+        // New Post (Global/Feed)
+        postsChannel?.bind(eventName: "new-post") { [weak self] event in
+            print("📥 [PUSHER EVENT] new-post received")
             guard let self = self else { return }
+            
+            // 1. Extract data string
+            guard let eventData = event.data else {
+                print("❌ new-post event has no data")
+                return
+            }
+            
+            // 2. Decode directly to Post object
+            // The data string is a JSON object string.
+            guard let jsonData = eventData.data(using: .utf8) else {
+                print("❌ Failed to convert new-post data to Data")
+                return
+            }
+            
+            do {
+                // The log shows the data is a JSON string of the post object
+                let post = try self.decoder.decode(Post.self, from: jsonData)
+                print("📝 New Post Parsed: \(post.title) by \(post.username)")
+                
+                Task { @MainActor in
+                    self.newPostSubject.send(post)
+                }
+            } catch {
+                print("❌ Failed to decode new-post: \(error)")
+                print("📦 Data: \(eventData)")
+            }
+        }
+
+        // Post Likes
+        likesChannel?.bind(eventName: "POST_LIKE") { [weak self] event in
+            print("📥 [PUSHER EVENT] POST_LIKE received")
+            guard let self = self else { return }
+            
+            // Extract JSON data from PusherEvent
+            guard let eventData = event.data,
+                  let jsonData = eventData.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+                print("❌ Failed to parse POST_LIKE event data")
+                print("📦 Event data string: \(event.data ?? "nil")")
+                return
+            }
+            
+            print("📦 Parsed JSON: \(json)")
             Task { @MainActor in
-                self.handlePostLike(data, userId: currentUserId)
+                self.handlePostLike(json, userId: currentUserId)
             }
         }
         
-        likesChannel?.bind(eventName: "POST_UNLIKE") { [weak self] data in
+        likesChannel?.bind(eventName: "POST_UNLIKE") { [weak self] event in
+            print("📥 [PUSHER EVENT] POST_UNLIKE received")
             guard let self = self else { return }
+            
+            // Extract JSON data from PusherEvent
+            guard let eventData = event.data,
+                  let jsonData = eventData.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+                print("❌ Failed to parse POST_UNLIKE event data")
+                print("📦 Event data string: \(event.data ?? "nil")")
+                return
+            }
+            
+            print("📦 Parsed JSON: \(json)")
             Task { @MainActor in
-                self.handlePostUnlike(data, userId: currentUserId)
+                self.handlePostUnlike(json, userId: currentUserId)
             }
         }
         
         // Comments
-        commentsChannel?.bind(eventName: "NEW-COMMENT1") { [weak self] data in
+        commentsChannel?.bind(eventName: "NEW-COMMENT1") { [weak self] event in
+            print("📥 [PUSHER EVENT] NEW-COMMENT1 received")
             guard let self = self else { return }
+            
+            // Extract JSON data from PusherEvent
+            guard let eventData = event.data,
+                  let jsonData = eventData.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+                print("❌ Failed to parse NEW-COMMENT1 event data")
+                print("📦 Event data string: \(event.data ?? "nil")")
+                return
+            }
+            
+            print("📦 Parsed JSON: \(json)")
             Task { @MainActor in
-                self.handleNewComment(data, userId: currentUserId)
+                self.handleNewComment(json, userId: currentUserId)
             }
         }
         
-        commentsChannel?.bind(eventName: "COMMENT-DELETED") { [weak self] data in
+        commentsChannel?.bind(eventName: "COMMENT-DELETED") { [weak self] event in
+            print("📥 [PUSHER EVENT] COMMENT-DELETED received")
             guard let self = self else { return }
+            
+            // Extract JSON data from PusherEvent
+            guard let eventData = event.data,
+                  let jsonData = eventData.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+                print("❌ Failed to parse COMMENT-DELETED event data")
+                print("📦 Event data string: \(event.data ?? "nil")")
+                return
+            }
+            
+            print("📦 Parsed JSON: \(json)")
             Task { @MainActor in
-                self.handleCommentDeleted(data)
+                self.handleCommentDeleted(json)
             }
         }
         
         // Comment Likes
-        likesChannel?.bind(eventName: "COMMENT_LIKE") { [weak self] data in
+        likesChannel?.bind(eventName: "COMMENT_LIKE") { [weak self] event in
+            print("📥 [PUSHER EVENT] COMMENT_LIKE received")
             guard let self = self else { return }
+            
+            // Extract JSON data from PusherEvent
+            guard let eventData = event.data,
+                  let jsonData = eventData.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+                print("❌ Failed to parse COMMENT_LIKE event data")
+                print("📦 Event data string: \(event.data ?? "nil")")
+                return
+            }
+            
+            print("📦 Parsed JSON: \(json)")
             Task { @MainActor in
-                self.handleCommentLike(data, userId: currentUserId)
+                self.handleCommentLike(json, userId: currentUserId)
             }
         }
         
-        repliesChannel?.bind(eventName: "COMMENT-UNLIKE") { [weak self] data in
+        repliesChannel?.bind(eventName: "COMMENT-UNLIKE") { [weak self] event in
+            print("📥 [PUSHER EVENT] COMMENT-UNLIKE received")
             guard let self = self else { return }
+            
+            // Extract JSON data from PusherEvent
+            guard let eventData = event.data,
+                  let jsonData = eventData.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+                print("❌ Failed to parse COMMENT-UNLIKE event data")
+                print("📦 Event data string: \(event.data ?? "nil")")
+                return
+            }
+            
+            print("📦 Parsed JSON: \(json)")
             Task { @MainActor in
-                self.handleCommentUnlike(data, userId: currentUserId)
+                self.handleCommentUnlike(json, userId: currentUserId)
             }
         }
         
         // Post Deleted
-        postsChannel?.bind(eventName: "POST-DELETED") { [weak self] data in
+        postsChannel?.bind(eventName: "POST-DELETED") { [weak self] event in
+            print("📥 [PUSHER EVENT] POST-DELETED received")
             guard let self = self else { return }
+            
+            // Extract JSON data from PusherEvent
+            guard let eventData = event.data,
+                  let jsonData = eventData.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+                print("❌ Failed to parse POST-DELETED event data")
+                print("📦 Event data string: \(event.data ?? "nil")")
+                return
+            }
+            
+            print("📦 Parsed JSON: \(json)")
             Task { @MainActor in
-                self.handlePostDeleted(data)
+                self.handlePostDeleted(json)
             }
         }
         
-        print("✅ Pusher event handlers configured")
+        print("✅ Pusher event handlers configured successfully")
+        print("🎯 Listening on channels: LIKES, posts, reply, REPLIES")
     }
     
     // MARK: - Event Handlers
     
     private func handlePostLike(_ data: Any?, userId: String) {
+        print("🔍 Processing POST_LIKE event...")
+        
         guard let dict = data as? [String: Any],
               let like = dict["like"] as? [String: Any],
               let count = dict["count"] as? Int,
               let postId = like["post_id"] as? String,
               let likeUserId = like["user_id"] as? String else {
-            print("⚠️ Invalid POST_LIKE data")
+            print("❌ Invalid POST_LIKE data structure!")
+            print("📦 Expected: {like: {post_id, user_id, ...}, count: Int}")
+            print("📦 Received: \(String(describing: data))")
             return
         }
         
-        print("❤️ POST_LIKE: \(postId) by \(likeUserId), count: \(count)")
-        
-        // Update count
+        let username = like["username"] as? String ?? "Unknown"
+        print("❤️ POST_LIKE PARSED SUCCESSFULLY:")
+        print("   📌 Post ID: \(postId)")
+        print("   👤 Liked by: \(username) (\(likeUserId))")
+        print("   📊 New count: \(count)")
+        print("   🔄 Is current user: \(likeUserId == userId ? "YES" : "NO")")
+
+        // Update in-memory count
         likeCount[postId] = count
-        
+
         // Track if current user liked it
         if likeUserId == userId {
             likedPostIds.insert(postId)
         }
+
+        // Persist to cache
+        cacheManager.cachePostStats(
+            postId: postId,
+            likeCount: count,
+            commentCount: commentCount[postId] ?? 0,
+            isLiked: likeUserId == userId ? true : (likedPostIds.contains(postId))
+        )
         
         // Notification: Someone liked MY post
         if let owner = like["owner"] as? String,
@@ -152,42 +304,85 @@ final class RealtimeManager {
            let username = like["username"] as? String {
             showNotification(
                 title: "👍 \(username) liked your post!",
-                body: "Your content is getting engagement!"
+                body: "Your content is getting engagement!",
+                type: .postLike,
+                resourceId: postId
             )
         }
     }
     
     private func handlePostUnlike(_ data: Any?, userId: String) {
-        guard let dict = data as? [String: Any] else { return }
+        print("🔍 Processing POST_UNLIKE event...")
         
+        guard let dict = data as? [String: Any] else {
+            print("❌ Invalid POST_UNLIKE data - not a dictionary")
+            return
+        }
+
         let postId = (dict["like"] as? [String: Any])?["post_id"] as? String ?? dict["PostID"] as? String
         let unlikeUserId = (dict["like"] as? [String: Any])?["user_id"] as? String ?? dict["UserID"] as? String
-        
-        guard let postId = postId, let unlikeUserId = unlikeUserId else { return }
-        
-        print("💔 POST_UNLIKE: \(postId) by \(unlikeUserId)")
-        
+
+        guard let postId = postId, let unlikeUserId = unlikeUserId else {
+            print("❌ Missing post_id or user_id in POST_UNLIKE")
+            print("📦 Received: \(String(describing: data))")
+            return
+        }
+
+        print("💔 POST_UNLIKE PARSED SUCCESSFULLY:")
+        print("   📌 Post ID: \(postId)")
+        print("   👤 Unliked by: \(unlikeUserId)")
+        print("   🔄 Is current user: \(unlikeUserId == userId ? "YES" : "NO")")
+
         // Decrement count
-        likeCount[postId] = max((likeCount[postId] ?? 1) - 1, 0)
-        
+        let newCount = max((likeCount[postId] ?? 1) - 1, 0)
+        likeCount[postId] = newCount
+
         // Remove from liked set if current user
+        let isLiked = unlikeUserId == userId ? false : likedPostIds.contains(postId)
         if unlikeUserId == userId {
             likedPostIds.remove(postId)
         }
+
+        // Persist to cache
+        cacheManager.cachePostStats(
+            postId: postId,
+            likeCount: newCount,
+            commentCount: commentCount[postId] ?? 0,
+            isLiked: isLiked
+        )
     }
     
     private func handleNewComment(_ data: Any?, userId: String) {
+        print("🔍 Processing NEW-COMMENT1 event...")
+        
         guard let dict = data as? [String: Any],
               let postId = dict["post_id"] as? String,
               let commentUserId = dict["user_id"] as? String else {
+            print("❌ Invalid NEW-COMMENT1 data")
+            print("📦 Received: \(String(describing: data))")
             return
         }
-        
-        print("💬 NEW-COMMENT: \(postId) by \(commentUserId)")
-        
+
+        let username = dict["user_name"] as? String ?? "Unknown"
+        let content = dict["content"] as? String ?? ""
+        print("💬 NEW-COMMENT PARSED SUCCESSFULLY:")
+        print("   📌 Post ID: \(postId)")
+        print("   👤 Comment by: \(username) (\(commentUserId))")
+        print("   📝 Content: \(String(content.prefix(50)))")
+        print("   🔄 Is current user: \(commentUserId == userId ? "YES" : "NO")")
+
         // Increment comment count
-        commentCount[postId] = (commentCount[postId] ?? 0) + 1
-        
+        let newCount = (commentCount[postId] ?? 0) + 1
+        commentCount[postId] = newCount
+
+        // Persist to cache
+        cacheManager.cachePostStats(
+            postId: postId,
+            likeCount: likeCount[postId] ?? 0,
+            commentCount: newCount,
+            isLiked: likedPostIds.contains(postId)
+        )
+
         // Notification: Someone commented on MY post
         if let owner = dict["owner"] as? String,
            owner == userId && commentUserId != userId,
@@ -196,7 +391,9 @@ final class RealtimeManager {
             let excerpt = String(content.prefix(50))
             showNotification(
                 title: "💬 \(username) commented on your post",
-                body: excerpt.isEmpty ? "Check out their comment" : "\"\(excerpt)...\""
+                body: excerpt.isEmpty ? "Check out their comment" : "\"\(excerpt)...\"",
+                type: .postComment,
+                resourceId: postId
             )
         }
     }
@@ -206,21 +403,38 @@ final class RealtimeManager {
               let postId = dict["post_id"] as? String else {
             return
         }
-        
+
         print("🗑️ COMMENT-DELETED: \(postId)")
-        
+
         // Decrement comment count
-        commentCount[postId] = max((commentCount[postId] ?? 1) - 1, 0)
+        let newCount = max((commentCount[postId] ?? 1) - 1, 0)
+        commentCount[postId] = newCount
+
+        // Persist to cache
+        cacheManager.cachePostStats(
+            postId: postId,
+            likeCount: likeCount[postId] ?? 0,
+            commentCount: newCount,
+            isLiked: likedPostIds.contains(postId)
+        )
     }
     
     private func handleCommentLike(_ data: Any?, userId: String) {
+        print("🔍 Processing COMMENT_LIKE event...")
+        
         guard let dict = data as? [String: Any],
               let commentId = dict["post_id"] as? String, // Note: post_id is actually commentId for comment likes
               let likeUserId = dict["user_id"] as? String else {
+            print("❌ Invalid COMMENT_LIKE data")
+            print("📦 Received: \(String(describing: data))")
             return
         }
         
-        print("❤️ COMMENT_LIKE: \(commentId) by \(likeUserId)")
+        let username = dict["username"] as? String ?? "Unknown"
+        print("❤️ COMMENT_LIKE PARSED SUCCESSFULLY:")
+        print("   📌 Comment ID: \(commentId)")
+        print("   👤 Liked by: \(username) (\(likeUserId))")
+        print("   🔄 Is current user: \(likeUserId == userId ? "YES" : "NO")")
         
         // Ignore own likes (already optimistically updated)
         guard likeUserId != userId else { return }
@@ -236,9 +450,13 @@ final class RealtimeManager {
         if let owner = dict["owner"] as? String,
            owner == userId,
            let username = dict["username"] as? String {
+            // Use post_id if available, otherwise use commentId
+            let resourceId = dict["post_id"] as? String ?? commentId
             showNotification(
                 title: "❤️ \(username) liked your comment!",
-                body: "Your comment resonated with someone!"
+                body: "Your comment resonated with someone!",
+                type: .commentLike,
+                resourceId: resourceId
             )
         }
     }
@@ -274,20 +492,73 @@ final class RealtimeManager {
         likedPostIds.remove(postId)
     }
     
+    // MARK: - Cache Management
+
+    /// Load cached stats from SwiftData into memory on app start
+    private func loadCachedStats() {
+        let cachedPosts = cacheManager.getAllPostStats()
+
+        for cached in cachedPosts {
+            likeCount[cached.postId] = cached.likeCount
+            commentCount[cached.postId] = cached.commentCount
+
+            if cached.isLikedByCurrentUser {
+                likedPostIds.insert(cached.postId)
+            }
+        }
+
+        print("💾 Loaded \(cachedPosts.count) cached post stats from SwiftData")
+    }
+
     // MARK: - Public Helpers
-    
+
     func getLikeCount(for postId: String) -> Int {
-        likeCount[postId] ?? 0
+        // Check cache first if not in memory
+        if let count = likeCount[postId] {
+            return count
+        }
+
+        // Fallback to cache
+        if let cached = cacheManager.getPostStats(postId: postId) {
+            likeCount[postId] = cached.likeCount
+            return cached.likeCount
+        }
+
+        return 0
     }
-    
+
     func getCommentCount(for postId: String) -> Int {
-        commentCount[postId] ?? 0
+        // Check cache first if not in memory
+        if let count = commentCount[postId] {
+            return count
+        }
+
+        // Fallback to cache
+        if let cached = cacheManager.getPostStats(postId: postId) {
+            commentCount[postId] = cached.commentCount
+            return cached.commentCount
+        }
+
+        return 0
     }
-    
+
     func isLiked(_ postId: String) -> Bool {
-        likedPostIds.contains(postId)
+        // Check memory first
+        if likedPostIds.contains(postId) {
+            return true
+        }
+
+        // Fallback to cache
+        if let cached = cacheManager.getPostStats(postId: postId) {
+            if cached.isLikedByCurrentUser {
+                likedPostIds.insert(postId)
+            }
+            return cached.isLikedByCurrentUser
+        }
+
+        return false
     }
-    
+
     func isCommentLiked(_ commentId: String) -> Bool {
         likedCommentIds.contains(commentId)
     }
@@ -295,28 +566,48 @@ final class RealtimeManager {
     // Initialize counts from existing data
     func initializeCounts(posts: [Post]) {
         for post in posts {
-            likeCount[post.id] = post.likeCount
-            commentCount[post.id] = post.commentCount
-            
+            // Only update if Post has actual count data (not 0 or if we don't have cached data)
+            // This prevents overwriting cached counts with zeros from incomplete API responses
+            let cachedStats = cacheManager.getPostStats(postId: post.id)
+
+            // Use Post counts if they're non-zero, otherwise keep cached values
+            let finalLikeCount = post.likeCount > 0 ? post.likeCount : (cachedStats?.likeCount ?? 0)
+            let finalCommentCount = post.commentCount > 0 ? post.commentCount : (cachedStats?.commentCount ?? 0)
+
+            likeCount[post.id] = finalLikeCount
+            commentCount[post.id] = finalCommentCount
+
             // Check if current user liked this post
+            var isLiked = cachedStats?.isLikedByCurrentUser ?? false
             if let likes = post.likes, let userId = currentUserId, likes.contains(userId) {
                 likedPostIds.insert(post.id)
+                isLiked = true
+            }
+
+            // Only persist if we have new non-zero data or no cache exists
+            if finalLikeCount > 0 || finalCommentCount > 0 || cachedStats == nil {
+                cacheManager.cachePostStats(
+                    postId: post.id,
+                    likeCount: finalLikeCount,
+                    commentCount: finalCommentCount,
+                    isLiked: isLiked
+                )
             }
         }
-        print("📊 Initialized counts for \(posts.count) posts")
+        print("📊 Initialized counts for \(posts.count) posts (preserving cache when API data is zero)")
     }
-    
+
     // Batch initialize counts from Redis
     func batchInitializeCounts(likeCounts: [String: Int], commentCounts: [String: Int], posts: [Post]) {
         // Use Redis counts as source of truth
         for (postId, count) in likeCounts {
             likeCount[postId] = count
         }
-        
+
         for (postId, count) in commentCounts {
             commentCount[postId] = count
         }
-        
+
         // Still need to check which posts current user liked
         guard let userId = currentUserId else { return }
         for post in posts {
@@ -324,19 +615,57 @@ final class RealtimeManager {
                 likedPostIds.insert(post.id)
             }
         }
-        
-        print("📊 Batch initialized counts: \(likeCounts.count) likes, \(commentCounts.count) comments")
+
+        // Batch persist to cache - more efficient
+        cacheManager.batchCachePostStats(
+            likeCounts: likeCounts,
+            commentCounts: commentCounts,
+            likedPostIds: likedPostIds
+        )
+
+        print("📊 Batch initialized and cached counts: \(likeCounts.count) likes, \(commentCounts.count) comments")
     }
     
     // MARK: - Notifications
-    
-    private func showNotification(title: String, body: String) {
-        // You can use UserNotifications framework for local notifications
-        // or show in-app toasts
+
+    private func showNotification(
+        title: String,
+        body: String,
+        type: NotificationType,
+        resourceId: String
+    ) {
         print("🔔 \(title): \(body)")
+
+        // 1. Persist to local cache (SwiftData)
+        // Extract userId if available (assuming resourceId might help or context)
+        // Ideally we pass action user info here too, but for now we use what we have
         
-        // TODO: Implement actual notification display
-        // For now, just logging
+        // Note: We need to extract the action user info from the event data to fully populate the cache
+        // but `showNotification` is generic.
+        // For now, we cache with available info.
+        
+        Task { @MainActor in
+            _ = self.currentUserId
+            
+            cacheManager.cacheNotification(
+                type: type.rawValue,
+                title: title,
+                message: body,
+                resourceId: resourceId,
+                userId: self.currentUserId
+            )
+        }
+
+        // 2. Show system notification
+        Task {
+            await NotificationManager.shared.showNotification(
+                title: title,
+                body: body,
+                type: type,
+                resourceId: resourceId,
+                badge: true
+            )
+        }
     }
     
     // MARK: - Cleanup
@@ -369,18 +698,35 @@ final class RealtimeManager {
 
 extension RealtimeManager: PusherDelegate {
     func changedConnectionState(from old: ConnectionState, to new: ConnectionState) {
-        print("🔄 Pusher: \(old.stringValue()) → \(new.stringValue())")
+        let timestamp = Date().formatted(date: .omitted, time: .standard)
+        print("⏰ [\(timestamp)] 🔄 Pusher Connection: \(old.stringValue()) → \(new.stringValue())")
+        
+        if new.stringValue() == "connected" {
+            print("🎉 PUSHER CONNECTED! Ready to receive events")
+        } else if new.stringValue() == "disconnected" {
+            print("⚠️ PUSHER DISCONNECTED - Events will not be received")
+        }
     }
     
     func debugLog(message: String) {
-        print("🔍 Pusher: \(message)")
+        // Only log important debug messages to reduce noise
+        if message.contains("websocketDidReceiveMessage") && !message.contains("pusher:ping") {
+            let timestamp = Date().formatted(date: .omitted, time: .standard)
+            print("⏰ [\(timestamp)] 🔍 Pusher Debug: \(message)")
+        }
     }
     
     func subscribedToChannel(name: String) {
-        print("✅ Subscribed to: \(name)")
+        let timestamp = Date().formatted(date: .omitted, time: .standard)
+        print("⏰ [\(timestamp)] ✅ Subscribed to channel: \(name)")
     }
     
     func failedToSubscribeToChannel(name: String, response: URLResponse?, data: String?, error: Error?) {
-        print("❌ Failed to subscribe to: \(name), error: \(error?.localizedDescription ?? "unknown")")
+        let timestamp = Date().formatted(date: .omitted, time: .standard)
+        print("⏰ [\(timestamp)] ❌ FAILED to subscribe to: \(name)")
+        print("   Error: \(error?.localizedDescription ?? "unknown")")
+        if let data = data {
+            print("   Response data: \(data)")
+        }
     }
 }

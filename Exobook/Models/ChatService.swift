@@ -10,50 +10,58 @@ import Foundation
 
 @MainActor
 protocol ChatService {
+    var currentUserId: String { get }
+    
     func fetchChats() async throws -> [ChatSummary]
-    func fetchMessages(chatId: UUID) async throws -> [Message]
-    func sendMessage(chatId: UUID, text: String) async throws
-    func subscribeToMessages(chatId: UUID, onEvent: @escaping (Message) -> Void) async throws
-    func unsubscribe(chatId: UUID)
+    func fetchMessages(chatId: String) async throws -> [Message]
+    func sendMessage(chatId: String, text: String, images: [String]?, files: [String]?) async throws
+    func subscribeToMessages(chatId: String, onEvent: @escaping (Message) -> Void) async throws
+    func unsubscribe(chatId: String)
 }
 
-final class MockChatService: ChatService {
-    private var listeners: [UUID: [(Message) -> Void]] = [:]
-    private let me = UUID()
-
-    func fetchChats() async throws -> [ChatSummary] {
-        [
-            ChatSummary(id: UUID(), title: "Elionore", avatarURL: nil, lastMessage: "On y va à 18h ?", lastTimestamp: .now.addingTimeInterval(-300), unreadCount: 2),
-            ChatSummary(id: UUID(), title: "Team Exobook", avatarURL: nil, lastMessage: "Build passes ✅", lastTimestamp: .now.addingTimeInterval(-7200), unreadCount: 0),
-            ChatSummary(id: UUID(), title: "Gigi Morissette", avatarURL: nil, lastMessage: "Merci !", lastTimestamp: .now.addingTimeInterval(-86400), unreadCount: 0)
-        ]
-    }
-
-    func fetchMessages(chatId: UUID) async throws -> [Message] {
-        let other = UUID()
-        return [
-            Message(id: UUID(), chatId: chatId, senderId: other, text: "Salut 👋", createdAt: .now.addingTimeInterval(-3600), isMine: false),
-            Message(id: UUID(), chatId: chatId, senderId: me,    text: "Hey! prêt ?", createdAt: .now.addingTimeInterval(-3550), isMine: true),
-            Message(id: UUID(), chatId: chatId, senderId: other, text: "Toujours", createdAt: .now.addingTimeInterval(-3500), isMine: false)
-        ]
-    }
-
-    func sendMessage(chatId: UUID, text: String) async throws {
-        let msg = Message(id: UUID(), chatId: chatId, senderId: me, text: text, createdAt: .now, isMine: true)
-        listeners[chatId]?.forEach { $0(msg) }
-        // Simulate reply
-        Task {
-            try? await Task.sleep(nanoseconds: 800_000_000)
-            let reply = Message(id: UUID(), chatId: chatId, senderId: UUID(), text: "👍", createdAt: .now, isMine: false)
-            await MainActor.run { self.listeners[chatId]?.forEach { $0(reply) } }
-        }
-    }
-
-    func subscribeToMessages(chatId: UUID, onEvent: @escaping (Message) -> Void) async throws {
-        listeners[chatId, default: []].append(onEvent)
-    }
-
-    func unsubscribe(chatId: UUID) {
-        listeners.removeValue(forKey: chatId)
-    }
-}
+//final class MockChatService: ChatService {
+//    private var listeners: [String: [(Message) -> Void]] = [:]
+//    private let me = UUID()
+//    
+//    var currentUserId: String { me.uuidString }
+//
+//    func fetchChats() async throws -> [ChatSummary] {
+//        // Create dummy chats with proper Chat and ChatMember objects
+//        let chat1 = Chat(id: UUID().uuidString, password: nil, headerImage: nil, metadata: nil, length: 5, lastMessage: "On y va à 18h ?", membersKey: nil)
+//        let members1 = [ChatMember(userId: me.uuidString, username: "Me", userBio: nil, userPic: nil), ChatMember(userId: UUID().uuidString, username: "Elionore", userBio: nil, userPic: nil)]
+//        
+//        let chat2 = Chat(id: UUID().uuidString, password: nil, headerImage: nil, metadata: nil, length: 10, lastMessage: "Build passes ✅", membersKey: nil)
+//        let members2 = [ChatMember(userId: me.uuidString, username: "Me", userBio: nil, userPic: nil), ChatMember(userId: UUID().uuidString, username: "Team Exobook", userBio: nil, userPic: nil)]
+//        
+//        return [
+//            ChatSummary(chat: chat1, members: members1, currentUserId: me.uuidString),
+//            ChatSummary(chat: chat2, members: members2, currentUserId: me.uuidString)
+//        ]
+//    }
+//
+//    func fetchMessages(chatId: String) async throws -> [Message] {
+//        let other = UUID()
+//        return [
+//            
+//        ]
+//    }
+//
+//    func sendMessage(chatId: String, text: String) async throws {
+//        let msg = Message(id: UUID(), chatId: chatId, senderId: me, text: text, createdAt: .now, isMine: true)
+//        listeners[chatId]?.forEach { $0(msg) }
+//        // Simulate reply
+//        Task {
+//            try? await Task.sleep(nanoseconds: 800_000_000)
+//            let reply = Message(id: UUID(), chatId: chatId, senderId: UUID(), text: "👍", createdAt: .now, isMine: false)
+//            await MainActor.run { self.listeners[chatId]?.forEach { $0(reply) } }
+//        }
+//    }
+//
+//    func subscribeToMessages(chatId: String, onEvent: @escaping (Message) -> Void) async throws {
+//        listeners[chatId, default: []].append(onEvent)
+//    }
+//
+//    func unsubscribe(chatId: String) {
+//        listeners.removeValue(forKey: chatId)
+//    }
+//}

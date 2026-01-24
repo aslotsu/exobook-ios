@@ -210,7 +210,7 @@ struct PostSearchResult: View {
                     userId: "user2",
                     userName: "Jane Smith",
                     userBio: "Engineering Student",
-                    userPicture: "https://via.placeholder.com/150",
+                    userPicture: "", // Empty string will use default profile image
                     userCampus: "Main Campus",
                     userProgramme: "Engineering",
                     title: "How to solve algorithm problems?",

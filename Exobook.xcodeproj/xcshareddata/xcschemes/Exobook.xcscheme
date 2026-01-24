@@ -61,6 +61,16 @@
             value = "a77d99a67f8892897039"
             isEnabled = "YES">
          </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "SUPABASE_PUBLIC_KEY"
+            value = "sb_publishable_-72SJSLo5WVInjunJwZ6yg_zL-6k6Ep"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "SUPABASE_URL"
+            value = "https://wszlgkiivyejlykntghj.supabase.co"
+            isEnabled = "YES">
+         </EnvironmentVariable>
       </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction

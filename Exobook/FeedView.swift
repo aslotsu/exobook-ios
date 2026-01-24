@@ -13,32 +13,29 @@ struct FeedView: View {
     @State private var showingComposer = false
     
     var body: some View {
-        NavigationStack {
-            Group {
-                if let viewModel = viewModel {
-                    feedContent(viewModel: viewModel)
-                } else if let user = currentUser {
-                    // Initialize view model once user is available
-                    Color.clear.onAppear {
-                        initializeViewModel(for: user)
-                    }
-                } else {
-                    // Shouldn't happen as AppView guards authentication
-                    Text("User not found")
+        Group {
+            if let viewModel = viewModel {
+                feedContent(viewModel: viewModel)
+            } else if let user = currentUser {
+                // Initialize view model once user is available
+                Color.clear.onAppear {
+                    initializeViewModel(for: user)
+                }
+            } else {
+                // Shouldn't happen as AppView guards authentication
+                Text("User not found")
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showingComposer = true }) {
+                    Image(systemName: "square.and.pencil")
                 }
             }
-            .navigationTitle("Feed")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingComposer = true }) {
-                        Image(systemName: "square.and.pencil")
-                    }
-                }
-            }
-            .sheet(isPresented: $showingComposer) {
-                if let viewModel = viewModel {
-                    PostComposerView(viewModel: viewModel)
-                }
+        }
+        .sheet(isPresented: $showingComposer) {
+            if let viewModel = viewModel {
+                PostComposerView(viewModel: viewModel)
             }
         }
     }
@@ -74,7 +71,7 @@ struct FeedView: View {
                         NavigationLink(destination: PostDetailView(post: post)) {
                             PostCard(
                                 post: post,
-                                isLiked: viewModel.isLiked(post.id),
+                                currentUserId: currentUser?.id ?? "",
                                 isBookmarked: viewModel.isBookmarked(post.id),
                                 onLike: {
                                     Task {
@@ -86,11 +83,60 @@ struct FeedView: View {
                                 },
                                 onBookmark: {
                                     viewModel.toggleBookmark(for: post.id)
+                                },
+                                onDelete: {
+                                    Task {
+                                        do {
+                                            try await viewModel.deletePost(post.id)
+                                        } catch {
+                                            print("Failed to delete post: \(error)")
+                                        }
+                                    }
+                                },
+                                onReport: {
+                                    print("Reported post: \(post.id)")
                                 }
                             )
                         }
                         .buttonStyle(.plain)
                         .padding(.horizontal)
+                        .onAppear {
+                            // Trigger load more when last post appears
+                            if post.id == viewModel.filteredPosts.last?.id {
+                                Task {
+                                    await viewModel.loadMore()
+                                }
+                            }
+                        }
+                    }
+
+                    // Loading more indicator
+                    if viewModel.isLoadingMore {
+                        HStack {
+                            ProgressView()
+                            Text("Loading more posts...")
+                                .foregroundColor(.secondary)
+                                .font(.subheadline)
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                    }
+                    
+                    // All caught up footer
+                    if !viewModel.hasMore && !viewModel.filteredPosts.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 40))
+                                .foregroundColor(.green)
+                            Text("All caught up!")
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                            Text("You've reached the end of your feed")
+                                .foregroundColor(.secondary)
+                                .font(.subheadline)
+                        }
+                        .padding(.vertical, 32)
+                        .frame(maxWidth: .infinity)
                     }
                     
                     // Empty state
@@ -116,11 +162,15 @@ struct FeedView: View {
                 }
                 .padding(.vertical)
             }
+            .safeAreaInset(edge: .bottom) {
+                Color.clear.frame(height: 59)
+            }
             .refreshable {
                 await viewModel.refreshFeed()
             }
             .task {
                 await viewModel.loadFeed()
+                viewModel.subscribeToRealtimeUpdates()
             }
             .background(adaptiveBackground)
         }

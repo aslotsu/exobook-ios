@@ -10,9 +10,20 @@ import Foundation
 import Supabase
 
 enum SupabaseConfig {
-    // Replace with your values (use the *publishable* key)
-    static let url = URL(string: "https://wszlgkiivyejlykntghj.supabase.co")!
-    static let key = "sb_publishable_-72SJSLo5WVInjunJwZ6yg_zL-6k6Ep"
+    static let url: URL = {
+        guard let urlString = ProcessInfo.processInfo.environment["SUPABASE_URL"],
+              let url = URL(string: urlString) else {
+            fatalError("SUPABASE_URL environment variable not set or invalid. Please configure it in Xcode scheme.")
+        }
+        return url
+    }()
+
+    static let key: String = {
+        guard let key = ProcessInfo.processInfo.environment["SUPABASE_PUBLIC_KEY"] else {
+            fatalError("SUPABASE_PUBLIC_KEY environment variable not set. Please configure it in Xcode scheme.")
+        }
+        return key
+    }()
 }
 
 // Global client you can inject if you prefer

@@ -13,27 +13,34 @@ import SwiftUI
 @Observable
 class AuthenticationManager {
     static let shared = AuthenticationManager()
-    
+
     private let supabaseClient: SupabaseClient
     private let exobookAPI = ExobookAPIService()
-    
+
     // Auth state
     var currentUser: User?
     var isAuthenticated: Bool { currentUser != nil }
     var isLoading = false
     var error: String?
-    
+
+    // Track if user has ever logged in before
+    var hasLoggedInBefore: Bool {
+        get { UserDefaults.standard.bool(forKey: "hasLoggedInBefore") }
+        set { UserDefaults.standard.set(newValue, forKey: "hasLoggedInBefore") }
+    }
+
     // Session
     private var session: Session? {
         didSet {
             Task {
                 if let session = session {
+                    hasLoggedInBefore = true // Mark that user has logged in
                     await loadUserData(userId: session.user.id.uuidString)
                 }
             }
         }
     }
-    
+
     private init() {
         self.supabaseClient = supabase
         Task {
@@ -162,8 +169,22 @@ class AuthenticationManager {
             // Convert UUID to lowercase for backend API compatibility
             let lowercaseUserId = userId.lowercased()
             
+            print("=== 📥 Loading User Data ===")
+            print("User ID (lowercase): \(lowercaseUserId)")
+            
             // Fetch user profile
             var user = try await exobookAPI.getUser(id: lowercaseUserId)
+            
+            print("✅ User fetched from API:")
+            print("  - ID: \(user.id)")
+            print("  - Email: \(user.email)")
+            print("  - Name: \(user.name)")
+            print("  - Username: \(user.username ?? "nil")")
+            print("  - Bio: \(user.bio ?? "nil")")
+            print("  - Picture: \(user.picture ?? "nil")")
+            print("  - Campus: \(user.campus ?? "nil")")
+            print("  - Program: \(user.program ?? "nil")")
+            print("  - Year: \(user.year?.description ?? "nil")")
             
             // Fetch user's enrolled courses separately
             let courseItems: [UserCourseItem]?
@@ -207,16 +228,27 @@ class AuthenticationManager {
                     createdAt: user.createdAt,
                     updatedAt: user.updatedAt
                 )
+            } else {
+                print("⚠️ No courses found or courses list is empty")
             }
             
             currentUser = user
+            print("✅ User data loaded successfully")
             print("🔍 Final user courses: \(user.courses?.count ?? 0) courses")
             print("🔍 Course codes: \(user.courseCodes)")
+            print("=========================")
+
+            // Setup FCM after successful user load
+            NotificationManager.shared.setupFCM(userId: user.id)
         } catch {
-            print("Failed to load user data: \(error)")
+            print("=== ❌ Failed to Load User Data ===")
+            print("Error: \(error)")
+            print("Error details: \(error.localizedDescription)")
+            
             // Use basic user info from Supabase session as fallback
             if let session = session {
-                currentUser = User(
+                print("⚠️ Using fallback user from Supabase session")
+                let fallbackUser = User(
                     id: session.user.id.uuidString.lowercased(),
                     email: session.user.email ?? "",
                     name: session.user.email ?? "User",
@@ -230,7 +262,14 @@ class AuthenticationManager {
                     createdAt: nil,
                     updatedAt: nil
                 )
+                currentUser = fallbackUser
+
+                // Setup FCM even with fallback user
+                NotificationManager.shared.setupFCM(userId: fallbackUser.id)
+            } else {
+                print("❌ No Supabase session available for fallback")
             }
+            print("=========================")
         }
     }
     

@@ -17,15 +17,32 @@
 		08CDCFE42EABAC1900C6B264 /* PusherSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 08CDCFE32EABAC1900C6B264 /* PusherSwift */; };
 		08CDCFF02EABB09500C6B264 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 08CDCFEF2EABB09500C6B264 /* GoogleSignIn */; };
 		08CDCFF22EABB09500C6B264 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 08CDCFF12EABB09500C6B264 /* GoogleSignInSwift */; };
+		08D34C3C2EEF4FEB004E2F61 /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 08D34C3B2EEF4FEB004E2F61 /* FirebaseAnalytics */; };
+		08D34C3E2EEF4FEB004E2F61 /* FirebaseAnalyticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = 08D34C3D2EEF4FEB004E2F61 /* FirebaseAnalyticsCore */; };
+		08D34C402EEF4FEB004E2F61 /* FirebaseAnalyticsIdentitySupport in Frameworks */ = {isa = PBXBuildFile; productRef = 08D34C3F2EEF4FEB004E2F61 /* FirebaseAnalyticsIdentitySupport */; };
+		08D34C412EEF4FEB004E2F62 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 08D34C422EEF4FEB004E2F62 /* FirebaseMessaging */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		08869E8C2EA82155003CD6D3 /* Exobook.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Exobook.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		0828CA502EF3C24900742E60 /* Exceptions for "Exobook" folder in "Exobook" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 08869E8B2EA82155003CD6D3 /* Exobook */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		08869E8E2EA82155003CD6D3 /* Exobook */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				0828CA502EF3C24900742E60 /* Exceptions for "Exobook" folder in "Exobook" target */,
+			);
 			path = Exobook;
 			sourceTree = "<group>";
 		};
@@ -37,11 +54,15 @@
 			buildActionMask = 2147483647;
 			files = (
 				08869EB72EA82B1A003CD6D3 /* Storage in Frameworks */,
+				08D34C402EEF4FEB004E2F61 /* FirebaseAnalyticsIdentitySupport in Frameworks */,
 				08869EB32EA82B1A003CD6D3 /* PostgREST in Frameworks */,
 				08869EB12EA82B1A003CD6D3 /* Functions in Frameworks */,
 				08869EAD2EA82A88003CD6D3 /* Auth in Frameworks */,
 				08869EB52EA82B1A003CD6D3 /* Realtime in Frameworks */,
 				08CDCFF22EABB09500C6B264 /* GoogleSignInSwift in Frameworks */,
+				08D34C3C2EEF4FEB004E2F61 /* FirebaseAnalytics in Frameworks */,
+				08D34C3E2EEF4FEB004E2F61 /* FirebaseAnalyticsCore in Frameworks */,
+				08D34C412EEF4FEB004E2F62 /* FirebaseMessaging in Frameworks */,
 				08869E9C2EA823C2003CD6D3 /* SDWebImageSwiftUI in Frameworks */,
 				08869EB92EA82B1A003CD6D3 /* Supabase in Frameworks */,
 				08CDCFE42EABAC1900C6B264 /* PusherSwift in Frameworks */,
@@ -98,6 +119,10 @@
 				08CDCFE32EABAC1900C6B264 /* PusherSwift */,
 				08CDCFEF2EABB09500C6B264 /* GoogleSignIn */,
 				08CDCFF12EABB09500C6B264 /* GoogleSignInSwift */,
+				08D34C3B2EEF4FEB004E2F61 /* FirebaseAnalytics */,
+				08D34C3D2EEF4FEB004E2F61 /* FirebaseAnalyticsCore */,
+				08D34C3F2EEF4FEB004E2F61 /* FirebaseAnalyticsIdentitySupport */,
+				08D34C422EEF4FEB004E2F62 /* FirebaseMessaging */,
 			);
 			productName = Exobook;
 			productReference = 08869E8C2EA82155003CD6D3 /* Exobook.app */;
@@ -132,6 +157,7 @@
 				08869E9D2EA823E0003CD6D3 /* XCRemoteSwiftPackageReference "supabase-swift" */,
 				08CDCFE22EABAC1900C6B264 /* XCRemoteSwiftPackageReference "pusher-websocket-swift" */,
 				08CDCFEE2EABB09500C6B264 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				08D34C3A2EEF4FEB004E2F61 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 08869E8D2EA82155003CD6D3 /* Products */;
@@ -288,10 +314,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8AKP5R6MFQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Exobook/Info.plist;
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLName = \"ca.exobook.Exobook\";\n    CFBundleURLSchemes =     (\n        exobook\n    );\n}";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -319,10 +349,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8AKP5R6MFQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Exobook/Info.plist;
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLName = \"ca.exobook.Exobook\";\n    CFBundleURLSchemes =     (\n        exobook\n    );\n}";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -401,6 +435,14 @@
 				minimumVersion = 9.0.0;
 			};
 		};
+		08D34C3A2EEF4FEB004E2F61 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.7.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -453,6 +495,26 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 08CDCFEE2EABB09500C6B264 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignInSwift;
+		};
+		08D34C3B2EEF4FEB004E2F61 /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 08D34C3A2EEF4FEB004E2F61 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
+		};
+		08D34C3D2EEF4FEB004E2F61 /* FirebaseAnalyticsCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 08D34C3A2EEF4FEB004E2F61 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalyticsCore;
+		};
+		08D34C3F2EEF4FEB004E2F61 /* FirebaseAnalyticsIdentitySupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 08D34C3A2EEF4FEB004E2F61 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalyticsIdentitySupport;
+		};
+		08D34C422EEF4FEB004E2F62 /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 08D34C3A2EEF4FEB004E2F61 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

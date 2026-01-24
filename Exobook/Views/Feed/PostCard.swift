@@ -10,13 +10,16 @@ import SDWebImageSwiftUI
 
 struct PostCard: View {
     let post: Post
-    let isLiked: Bool
+    let currentUserId: String
     let isBookmarked: Bool
     let onLike: () -> Void
     let onComment: () -> Void
     let onBookmark: () -> Void
-    @State private var showingComments = false
+    let onDelete: () -> Void
+    let onReport: () -> Void
+    @State private var showingReplySheet = false
     @State private var showingMenu = false
+    @State private var showingReportAlert = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -38,7 +41,7 @@ struct PostCard: View {
                     .lineLimit(8)
                 
                 // Images grid
-                if !post.images.isEmpty {
+                if !(post.images ?? []).isEmpty {
                     PostImagesGrid(imageURLs: post.imageURLs)
                         .padding(.top, 4)
                 }
@@ -53,13 +56,10 @@ struct PostCard: View {
             // Action bar
             PostActionBar(
                 post: post,
-                isLiked: isLiked,
                 isBookmarked: isBookmarked,
                 onLike: onLike,
-                onComment: onComment,
-                onBookmark: onBookmark,
-                onShowComments: { showingComments.toggle() },
-                showingComments: showingComments
+                onComment: { showingReplySheet = true },
+                onBookmark: onBookmark
             )
         }
         .background(adaptiveCardBackground)
@@ -68,6 +68,72 @@ struct PostCard: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.gray.opacity(0.2), lineWidth: 1)
         )
+        .sheet(isPresented: $showingReplySheet) {
+            QuickReplyView(post: post, onCommentPosted: {
+                // Optional: refresh logic if needed
+            })
+            .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showingMenu) {
+            VStack(spacing: 16) {
+                Capsule()
+                    .fill(Color.secondary.opacity(0.3))
+                    .frame(width: 40, height: 5)
+                    .padding(.top, 8)
+                
+                Text("Post Options")
+                    .font(.headline)
+                    .padding(.bottom, 8)
+                
+                Button(action: {
+                    showingMenu = false
+                    // Delay slightly to allow sheet to dismiss before showing alert
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        onReport()
+                        showingReportAlert = true
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "exclamationmark.bubble")
+                        Text("Report Post")
+                        Spacer()
+                    }
+                    .padding()
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    .cornerRadius(10)
+                }
+                .buttonStyle(.plain)
+                
+                if post.userId == currentUserId {
+                    Button(action: {
+                        showingMenu = false
+                        onDelete()
+                    }) {
+                        HStack {
+                            Image(systemName: "trash")
+                                .foregroundColor(.red)
+                            Text("Delete Post")
+                                .foregroundColor(.red)
+                            Spacer()
+                        }
+                        .padding()
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .cornerRadius(10)
+                    }
+                    .buttonStyle(.plain)
+                }
+                
+                Spacer()
+            }
+            .padding()
+            .presentationDetents([.height(250)])
+            .presentationDragIndicator(.visible)
+        }
+        .alert("Report Received", isPresented: $showingReportAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Thanks for reporting this post. We will review it shortly.")
+        }
     }
     
     @Environment(\.colorScheme) private var colorScheme
@@ -86,23 +152,7 @@ struct PostHeader: View {
     var body: some View {
         HStack(spacing: 12) {
             // User avatar
-            if let avatarURL = post.userAvatarURL {
-                WebImage(url: avatarURL)
-                    .resizable()
-                    .indicator(.activity)
-                    .scaledToFill()
-                    .frame(width: 40, height: 40)
-                    .clipShape(Circle())
-            } else {
-                Circle()
-                    .fill(Color.blue.opacity(0.2))
-                    .frame(width: 40, height: 40)
-                    .overlay(
-                        Text((post.userName ?? post.username).prefix(1).uppercased())
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.blue)
-                    )
-            }
+            ProfileImageView(imageURL: post.userAvatarURL, userName: post.userName ?? post.username, size: 40)
             
             // User info
             VStack(alignment: .leading, spacing: 3) {
@@ -135,8 +185,11 @@ struct PostHeader: View {
             Button(action: { showingMenu.toggle() }) {
                 Image(systemName: "ellipsis")
                     .foregroundColor(.secondary)
-                    .padding(8)
+                    .padding(16) // Increased clickable area
+                    .contentShape(Rectangle()) // Ensure the whole padded area is tappable
             }
+            .buttonStyle(.plain)
+            .offset(x: 10, y: -10) // Move up and right
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -161,7 +214,7 @@ struct PostImagesGrid: View {
     
     var body: some View {
         LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(imageURLs, id: \.self) { url in
+            ForEach(Array(imageURLs.enumerated()), id: \.offset) { index, url in
                 WebImage(url: url)
                     .resizable()
                     .scaledToFill()
@@ -197,33 +250,48 @@ extension String {
 // MARK: - Preview
 
 #Preview {
-    ScrollView {
+    // Helper function to create a Post instance for preview using JSON decoding
+    func createPreviewPost() -> Post {
+        let jsonString = """
+        {
+            "id": "1",
+            "user_id": "user1",
+            "username": "johndoe",
+            "user_name": "John Doe",
+            "user_bio": "Computer Science Student",
+            "user_campus": "Main Campus",
+            "user_programme": "Computer Science",
+            "user_year": 2,
+            "user_picture": "",
+            "title": "How do I solve this algorithm problem?",
+            "content": "I've been stuck on this for hours. Anyone know how to approach dynamic programming problems? I understand the concept but struggle with implementation.",
+            "subject": "CS101",
+            "images": [],
+            "likes": ["1", "2", "3"],
+            "comments": ["c1", "c2"],
+            "created_at": "2024-01-13T09:00:00Z",
+            "updated_at": "2024-01-13T10:00:00Z"
+        }
+        """
+        
+        let jsonData = jsonString.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        
+        return try! decoder.decode(Post.self, from: jsonData)
+    }
+    
+    return ScrollView {
         VStack(spacing: 16) {
             PostCard(
-                post: Post(
-                    id: "1",
-                    userId: "user1",
-                    username: "johndoe",
-                    userName: "John Doe",
-                    userBio: "Computer Science Student",
-                    userCampus: "Main Campus",
-                    userProgramme: "Computer Science",
-                    userYear: 2,
-                    userPicture: "https://via.placeholder.com/150",
-                    title: "How do I solve this algorithm problem?",
-                    content: "I've been stuck on this for hours. Anyone know how to approach dynamic programming problems? I understand the concept but struggle with implementation.",
-                    subject: "CS101",
-                    images: [],
-                    likes: ["1", "2", "3"],
-                    comments: ["c1", "c2"],
-                    createdAt: Date().addingTimeInterval(-3600),
-                    updatedAt: Date()
-                ),
-                isLiked: false,
+                post: createPreviewPost(),
+                currentUserId: "user1",
                 isBookmarked: false,
                 onLike: {},
                 onComment: {},
-                onBookmark: {}
+                onBookmark: {},
+                onDelete: {},
+                onReport: {}
             )
             .padding()
         }

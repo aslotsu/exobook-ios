@@ -16,7 +16,7 @@ struct AuthPage: View {
     @State private var errorMessage: String?
 
     // Your custom scheme must also be added as a Redirect URL in Supabase Auth settings
-    private let redirectURL = URL(string: "exobook://login-callback")!
+    private let redirectURL = URL(string: "exobook://auth-callback")!
 
     var body: some View {
         VStack(spacing: 16) {

@@ -33,13 +33,14 @@ class NetworkService {
         // Remove data size limits for large API responses
         configuration.urlCache = URLCache(memoryCapacity: 50_000_000, diskCapacity: 100_000_000)
         self.session = URLSession(configuration: configuration)
-        
+
         self.decoder = JSONDecoder()
-        self.decoder.keyDecodingStrategy = .convertFromSnakeCase
+        // Don't use .convertFromSnakeCase - it conflicts with custom CodingKeys
+        // Each model should define its own CodingKeys for snake_case mapping
         self.decoder.dateDecodingStrategy = .iso8601
-        
+
         self.encoder = JSONEncoder()
-        self.encoder.keyEncodingStrategy = .convertToSnakeCase
+        // Don't use .convertToSnakeCase - each model should define its own CodingKeys
         self.encoder.dateEncodingStrategy = .iso8601
     }
     
@@ -81,6 +82,65 @@ class NetworkService {
         headers: [String: String]? = nil
     ) async throws -> T {
         try await request(endpoint, method: "DELETE", headers: headers)
+    }
+    
+    func upload<T: Decodable>(
+        _ endpoint: String,
+        data: Data,
+        boundary: String,
+        headers: [String: String]? = nil
+    ) async throws -> T {
+        guard let url = URL(string: endpoint) else {
+            throw NetworkError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = data
+        
+        headers?.forEach { key, value in
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        
+        // Log request (debug only)
+        #if DEBUG
+        print("🌐 [UPLOAD] \(endpoint)")
+        print("📦 Data size: \(data.count) bytes")
+        #endif
+        
+        let (responseData, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NetworkError.invalidResponse
+        }
+        
+        // Log response (debug only)
+        #if DEBUG
+        print("📥 [\(httpResponse.statusCode)] \(endpoint)")
+        if let responseString = String(data: responseData, encoding: .utf8) {
+            print("📄 Response: \(responseString)")
+        }
+        #endif
+        
+        switch httpResponse.statusCode {
+        case 200...299:
+            do {
+                return try decoder.decode(T.self, from: responseData)
+            } catch {
+                throw NetworkError.decodingError(error)
+            }
+        case 401:
+            throw NetworkError.unauthorized
+        case 400...499:
+            throw NetworkError.httpError(statusCode: httpResponse.statusCode)
+        case 500...599:
+            let message = String(data: responseData, encoding: .utf8) ?? "Server error"
+            throw NetworkError.serverError(message)
+        default:
+            throw NetworkError.httpError(statusCode: httpResponse.statusCode)
+        }
     }
     
     // MARK: - Generic Request

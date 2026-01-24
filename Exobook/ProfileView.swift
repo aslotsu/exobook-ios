@@ -12,6 +12,11 @@ import SDWebImageSwiftUI
 struct ProfileView: View {
     @Environment(\.currentUser) private var currentUser
     @State private var showingSettings = false
+    @State private var isRefreshing = false
+    @State private var showingLikedPosts = false
+    @State private var showingSavedPosts = false
+    @State private var showingMyPosts = false
+    @State private var showingEditProfile = false
     
     var body: some View {
         ScrollView {
@@ -57,9 +62,69 @@ struct ProfileView: View {
                 }
             }
         }
+        .refreshable {
+            await refreshProfile()
+        }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
         }
+        .sheet(isPresented: $showingLikedPosts) {
+            NavigationStack {
+                LikedPostsView()
+            }
+        }
+        .sheet(isPresented: $showingSavedPosts) {
+            NavigationStack {
+                SavedPostsView()
+            }
+        }
+        .sheet(isPresented: $showingMyPosts) {
+            NavigationStack {
+                MyPostsView()
+            }
+        }
+        .sheet(isPresented: $showingEditProfile) {
+            if let user = currentUser {
+                EditProfileView(user: user)
+            }
+        }
+        .onAppear {
+            debugPrintUserInfo()
+        }
+    }
+    
+    private func refreshProfile() async {
+        isRefreshing = true
+        print("🔄 Refreshing profile data...")
+        await AuthenticationManager.shared.refreshUserData()
+        debugPrintUserInfo()
+        isRefreshing = false
+    }
+    
+    private func debugPrintUserInfo() {
+        print("=== 🔍 Profile Debug Info ===")
+        if let user = currentUser {
+            print("User ID: \(user.id)")
+            print("Email: \(user.email)")
+            print("Name: \(user.name)")
+            print("Username: \(user.username ?? "nil")")
+            print("Bio: \(user.bio ?? "nil")")
+            print("Picture: \(user.picture ?? "nil")")
+            print("Campus: \(user.campus ?? "nil")")
+            print("Program: \(user.program ?? "nil")")
+            print("Year: \(user.year?.description ?? "nil")")
+            print("Courses count: \(user.courses?.count ?? 0)")
+            if let courses = user.courses {
+                print("Course details:")
+                courses.forEach { course in
+                    print("  - \(course.courseCode): \(course.courseName)")
+                }
+            }
+            print("Avatar URL: \(user.avatarURL?.absoluteString ?? "nil")")
+        } else {
+            print("❌ currentUser is nil!")
+        }
+        print("=========================")
     }
     
     // MARK: - Profile Header
@@ -68,23 +133,7 @@ struct ProfileView: View {
     private func profileHeader(user: User) -> some View {
         VStack(spacing: 16) {
             // Avatar
-            if let avatarURL = user.avatarURL {
-                WebImage(url: avatarURL)
-                    .resizable()
-                    .indicator(.activity)
-                    .scaledToFill()
-                    .frame(width: 100, height: 100)
-                    .clipShape(Circle())
-            } else {
-                Circle()
-                    .fill(Color.blue.opacity(0.2))
-                    .frame(width: 100, height: 100)
-                    .overlay(
-                        Text(user.name.prefix(1).uppercased())
-                            .font(.system(size: 40, weight: .bold))
-                            .foregroundColor(.blue)
-                    )
-            }
+            ProfileImageView(imageURL: user.avatarURL, userName: user.name, size: 100)
             
             // Name and Bio
             VStack(spacing: 8) {
@@ -100,16 +149,29 @@ struct ProfileView: View {
                 }
             }
             
-            // Edit Profile Button
-            Button(action: { /* TODO: Navigate to edit profile */ }) {
-                Text("Edit Profile")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+            // Action Buttons - Edit Profile and My Posts
+            HStack(spacing: 12) {
+                Button(action: { showingEditProfile = true }) {
+                    Text("Edit Profile")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+                
+                Button(action: { showingMyPosts = true }) {
+                    Text("My Posts")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.gray.opacity(0.2))
+                        .foregroundColor(.primary)
+                        .cornerRadius(10)
+                }
             }
         }
         .padding(.top, 20)
@@ -119,9 +181,9 @@ struct ProfileView: View {
     
     private var statsSection: some View {
         HStack(spacing: 40) {
-            StatView(title: "Posts", value: "0")
-            StatView(title: "Followers", value: "0")
-            StatView(title: "Following", value: "0")
+            // TODO: Implement followers/following functionality in the future
+            // StatView(title: "Followers", value: "0")
+            // StatView(title: "Following", value: "0")
         }
     }
     
@@ -185,9 +247,9 @@ struct ProfileView: View {
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
             
-            ActionButton(icon: "bookmark", title: "Saved Posts", action: {})
-            ActionButton(icon: "heart", title: "Liked Posts", action: {})
-            ActionButton(icon: "person.2", title: "Friends", action: {})
+            ActionButton(icon: "bookmark", title: "Saved Posts", action: { showingSavedPosts = true })
+            // ActionButton(icon: "heart", title: "Liked Posts", action: { showingLikedPosts = true })
+            // ActionButton(icon: "person.2", title: "Friends", action: {})
             ActionButton(icon: "arrow.right.circle", title: "Sign Out", color: .red, action: signOut)
         }
     }

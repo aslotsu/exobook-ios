@@ -123,8 +123,9 @@ class ExploreViewModel {
                 year: userYear,
                 id: userId
             )
-            
-            recommendedPosts = try await exobookAPI.getAllPosts(request: request)
+
+            let response = try await exobookAPI.getAllPosts(request: request)
+            recommendedPosts = response.posts
         } catch {
             print("Failed to load recommended posts: \(error)")
         }

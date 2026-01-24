@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SDWebImageSwiftUI
+import PhotosUI
 
 struct PostDetailView: View {
     let post: Post
@@ -24,7 +25,7 @@ struct PostDetailView: View {
                     postContent
                     
                     // Post Images
-                    if !post.images.isEmpty {
+                    if !(post.images ?? []).isEmpty {
                         postImages
                     }
                     
@@ -49,7 +50,7 @@ struct PostDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             if viewModel == nil, let user = currentUser {
-                viewModel = PostDetailViewModel(post: post, currentUserId: user.id)
+                viewModel = PostDetailViewModel(post: post, currentUser: user)
                 await viewModel?.loadComments()
             }
         }
@@ -60,17 +61,7 @@ struct PostDetailView: View {
     private var postHeader: some View {
         HStack(spacing: 12) {
             // User Avatar
-            if let avatarURL = post.userAvatarURL {
-                WebImage(url: avatarURL)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 44, height: 44)
-                    .clipShape(Circle())
-            } else {
-                Circle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 44, height: 44)
-            }
+            ProfileImageView(imageURL: post.userAvatarURL, userName: post.userName ?? post.username, size: 44)
             
             VStack(alignment: .leading, spacing: 4) {
                 Text(post.userName ?? post.username)
@@ -132,19 +123,33 @@ struct PostDetailView: View {
     
     private func actionButtons(viewModel: PostDetailViewModel) -> some View {
         HStack(spacing: 24) {
-            // Like Button
+            // Like Button with animation
             Button(action: {
                 Task {
                     await viewModel.toggleLike()
                 }
             }) {
-                Label("\(viewModel.likeCount)", systemImage: viewModel.isLiked ? "heart.fill" : "heart")
-                    .foregroundColor(viewModel.isLiked ? .red : .primary)
+                HStack(spacing: 4) {
+                    Image(systemName: viewModel.isLiked ? "heart.fill" : "heart")
+                        .foregroundStyle(viewModel.isLiked ? .red : .primary)
+                        .font(.system(size: 20))
+                        .symbolEffect(.bounce, value: viewModel.isLiked)
+                    Text("\(viewModel.likeCount)")
+                        .font(.subheadline)
+                        .fontWeight(viewModel.isLiked ? .semibold : .regular)
+                        .foregroundStyle(viewModel.isLiked ? .red : .secondary)
+                }
             }
+            .sensoryFeedback(.success, trigger: viewModel.isLiked)
             
             // Comment Count
-            Label("\(viewModel.commentCount)", systemImage: "bubble.right")
-                .foregroundColor(.primary)
+            HStack(spacing: 4) {
+                Image(systemName: "bubble.right")
+                    .font(.system(size: 20))
+                Text("\(viewModel.commentCount)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
             
             Spacer()
         }
@@ -169,13 +174,45 @@ struct PostDetailView: View {
                     .padding()
             } else {
                 ForEach(viewModel.comments) { comment in
-                    CommentRow(comment: comment)
+                    CommentRow(
+                        comment: comment,
+                        initialLikeCount: viewModel.replyLikeCounts[comment.id] ?? 0,
+                        replyCount: viewModel.subReplyCounts[comment.id] ?? 0,
+                        onReply: { reply in
+                            viewModel.replyingTo = reply
+                        }
+                    )
                 }
             }
             
             // Comment Input
-            CommentInputView { commentText in
-                await viewModel.postComment(commentText)
+            VStack(spacing: 0) {
+                if let replyingTo = viewModel.replyingTo {
+                    HStack {
+                        Text("Replying to \(replyingTo.userName ?? "User")")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Spacer()
+                        
+                        Button(action: {
+                            viewModel.replyingTo = nil
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(Color.gray.opacity(0.1))
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                
+                CommentInputView { commentText, images in
+                    await viewModel.postComment(commentText, images: images)
+                }
+                .padding()
+                .background(.ultraThinMaterial)
             }
         }
     }
@@ -191,29 +228,159 @@ struct PostDetailView: View {
 
 struct CommentRow: View {
     let comment: Reply
+    let initialLikeCount: Int
+    let replyCount: Int
+    let onReply: (Reply) -> Void
+    @State private var isLiked = false
+    @State private var likeCount = 0
+    @State private var showReplies = false
+    
+    init(comment: Reply, initialLikeCount: Int = 0, replyCount: Int = 0, onReply: @escaping (Reply) -> Void = { _ in }) {
+        self.comment = comment
+        self.initialLikeCount = initialLikeCount
+        self.replyCount = replyCount
+        self.onReply = onReply
+    }
+    
+    @Environment(\.currentUser) private var currentUser
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 12) {
-                Circle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 32, height: 32)
+                // User Avatar
+                if let userImage = comment.userImage, let url = avatarURL(from: userImage) {
+                    ProfileImageView(imageURL: url, userName: comment.userName ?? "User", size: 32)
+                } else {
+                    Circle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 32, height: 32)
+                }
                 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("User") // TODO: Add user info to Reply model
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(comment.userName ?? "User")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                     
                     Text(comment.content)
                         .font(.body)
                     
-                    Text(comment.createdAt.timeAgoDisplay())
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    if let images = comment.images, !images.isEmpty {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
+                            ForEach(Array(images), id: \.self) { (imageId: String) in
+                                let urlString = imageId.hasPrefix("http") ? imageId : "https://exobook.s3.amazonaws.com/\(imageId)"
+                                WebImage(url: URL(string: urlString))
+                                    .onSuccess { _, _, _ in
+                                        print("✅ DEBUG: Loaded image: \(urlString)")
+                                    }
+                                    .onFailure { error in
+                                        print("❌ DEBUG: Failed to load image: \(urlString), Error: \(error)")
+                                    }
+                                    .resizable()
+                                    .indicator(.activity)
+                                    .scaledToFill()
+                                    .frame(height: 120)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                        }
+                        .padding(.top, 4)
+                        .onAppear {
+                             print("📸 DEBUG: Comment \(comment.id) images: \(images)")
+                        }
+                    }
+                    
+                    HStack(spacing: 16) {
+                        // Comment like button (Moved to start)
+                        Button(action: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                                isLiked.toggle()
+                                likeCount += isLiked ? 1 : -1
+                            }
+                        }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: isLiked ? "heart.fill" : "heart")
+                                    .foregroundStyle(isLiked ? .red : .secondary)
+                                    .font(.system(size: 12))
+                                    .symbolEffect(.bounce, value: isLiked)
+                                if likeCount > 0 {
+                                    Text("\(likeCount)")
+                                        .font(.caption2)
+                                        .fontWeight(isLiked ? .semibold : .regular)
+                                        .foregroundStyle(isLiked ? .red : .secondary)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .sensoryFeedback(.success, trigger: isLiked)
+                        
+                        // Reply button
+                        Button(action: {
+                            onReply(comment)
+                        }) {
+                            Text("Reply")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        
+                        // Toggle Replies Button
+                        Button(action: {
+                            withAnimation {
+                                showReplies.toggle()
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "bubble.left")
+                                    .font(.caption2)
+                                Text("\(replyCount) Replies")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        
+                        // Time display (Moved to end)
+                        Text(comment.createdAt.timeAgoDisplay())
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
+            }
+            
+            if showReplies {
+                NestedCommentSection(parentCommentId: comment.id, onReply: onReply)
+                    .padding(.leading, 44)
             }
         }
         .padding(.vertical, 8)
+        .onAppear {
+            // Initialize like count from Redis data if available, otherwise fall back to comment data
+            likeCount = initialLikeCount > 0 ? initialLikeCount : (comment.likes?.count ?? 0)
+            
+            // Initialize isLiked status
+            if let user = currentUser, let likes = comment.likes {
+                isLiked = likes.contains(user.id)
+            }
+        }
+    }
+    
+    // Helper to convert user image string to URL
+    private func avatarURL(from imageString: String) -> URL? {
+        // Skip SVG files
+        if imageString.lowercased().hasSuffix(".svg") {
+            return nil
+        }
+        
+        if imageString.starts(with: "http") {
+            return URL(string: imageString)
+        }
+        
+        if imageString.starts(with: "/") {
+            return URL(string: "https://exobook.ca\(imageString)")
+        }
+        
+        return URL(string: "https://exobook.s3.amazonaws.com/\(imageString)")
     }
 }
 
@@ -222,33 +389,85 @@ struct CommentRow: View {
 struct CommentInputView: View {
     @State private var commentText = ""
     @State private var isPosting = false
-    let onPost: (String) async -> Void
+    @State private var selectedItems: [PhotosPickerItem] = []
+    @State private var selectedImages: [UIImage] = []
+    
+    let onPost: (String, [UIImage]) async -> Void
     
     var body: some View {
-        HStack(spacing: 12) {
-            TextField("Add a comment...", text: $commentText, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...4)
-            
-            Button(action: {
-                guard !commentText.isEmpty else { return }
-                Task {
-                    isPosting = true
-                    await onPost(commentText)
-                    commentText = ""
-                    isPosting = false
+        VStack(alignment: .leading, spacing: 12) {
+            // Image Previews
+            if !selectedImages.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(0..<selectedImages.count, id: \.self) { index in
+                            ZStack(alignment: .topTrailing) {
+                                Image(uiImage: selectedImages[index])
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 60, height: 60)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                
+                                Button(action: {
+                                    selectedImages.remove(at: index)
+                                }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.white)
+                                        .background(Circle().fill(Color.black.opacity(0.5)))
+                                }
+                                .padding(2)
+                            }
+                        }
+                    }
                 }
-            }) {
-                if isPosting {
-                    ProgressView()
-                } else {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 28))
-                }
+                .frame(height: 70)
             }
-            .disabled(commentText.isEmpty || isPosting)
+            
+            HStack(spacing: 12) {
+                // Photo Picker
+                PhotosPicker(selection: $selectedItems, matching: .images) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 24))
+                        .foregroundColor(.secondary)
+                }
+                
+                TextField("Add a comment...", text: $commentText, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...4)
+                
+                Button(action: {
+                    Task {
+                        isPosting = true
+                        await onPost(commentText, selectedImages)
+                        commentText = ""
+                        selectedImages = []
+                        selectedItems = []
+                        isPosting = false
+                    }
+                }) {
+                    if isPosting {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 28))
+                    }
+                }
+                .disabled((commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedImages.isEmpty) || isPosting)
+            }
         }
         .padding(.top, 12)
+        .onChange(of: selectedItems) { _, newItems in
+            Task {
+                var images: [UIImage] = []
+                for item in newItems {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        images.append(image)
+                    }
+                }
+                selectedImages = images
+            }
+        }
     }
 }
 
@@ -258,21 +477,35 @@ struct CommentInputView: View {
 @Observable
 class PostDetailViewModel {
     let post: Post
-    let currentUserId: String
+    let currentUser: User
+    var currentUserId: String { currentUser.id }
     private let api = ExobookAPIService()
     private let likesAPI = LikesAPIService()
+    private let cacheManager = StatsCacheManager.shared
     
     var comments: [Reply] = []
+    var replyLikeCounts: [String: Int] = [:] // Store real-time like counts from Redis
+    var subReplyCounts: [String: Int] = [:]  // Store real-time nested reply counts
+    var replyingTo: Reply? // Track which comment is being replied to
     var isLoadingComments = false
     var isLiked = false
     var likeCount: Int
     var commentCount: Int
     
-    init(post: Post, currentUserId: String) {
+    init(post: Post, currentUser: User) {
         self.post = post
-        self.currentUserId = currentUserId
-        self.likeCount = post.likeCount
-        self.commentCount = post.commentCount
+        self.currentUser = currentUser
+        
+        // Initialize from Cache if available
+        if let stats = StatsCacheManager.shared.getPostStats(postId: post.id) {
+            self.likeCount = stats.likeCount
+            self.commentCount = stats.commentCount
+            self.isLiked = stats.isLikedByCurrentUser
+        } else {
+            self.likeCount = post.likeCount
+            self.commentCount = post.commentCount
+            self.isLiked = post.likes?.contains(currentUser.id) ?? false
+        }
     }
     
     func loadComments() async {
@@ -281,25 +514,116 @@ class PostDetailViewModel {
             comments = try await api.getReplies(postId: post.id)
             commentCount = comments.count
             
-            // Check if user liked the post
-            // TODO: Implement check like status API
-            isLiked = false
+            // Load real-time like counts and reply counts for these comments from Redis
+            if !comments.isEmpty {
+                let ids = comments.map { $0.id }
+                async let likes = api.getBatchReplyLikeCounts(postId: post.id, replyIds: ids)
+                async let replies = api.getBatchSubReplyCounts(postId: post.id, replyIds: ids)
+                
+                let (likesResult, repliesResult) = try await (likes, replies)
+                replyLikeCounts = likesResult
+                subReplyCounts = repliesResult
+            }
+            
+            // Update cache with new comment count
+            if let stats = cacheManager.getPostStats(postId: post.id) {
+                cacheManager.cachePostStats(
+                    postId: post.id,
+                    likeCount: stats.likeCount,
+                    commentCount: commentCount,
+                    isLiked: stats.isLikedByCurrentUser
+                )
+            }
         } catch {
             print("Failed to load comments: \(error)")
         }
         isLoadingComments = false
     }
     
-    func postComment(_ content: String) async {
+    func postComment(_ content: String, images: [UIImage] = []) async {
         do {
+            // Determine parent info
+            let originalId: String
+            let ownerId: String
+            let level: Int
+            
+            if let replyTo = replyingTo {
+                originalId = replyTo.id
+                ownerId = replyTo.userId
+                level = (replyTo.level ?? 0) + 1
+            } else {
+                originalId = post.id
+                ownerId = post.userId
+                level = 0
+            }
+            
+            // Construct request matching the web frontend format
             let request = CreateReplyRequest(
+                userId: currentUser.id,
+                userName: currentUser.name,
+                userBio: currentUser.bio ?? "",
+                userImage: currentUser.picture ?? "",
+                owner: ownerId,
+                original: originalId,
                 postId: post.id,
-                userId: currentUserId,
-                content: content
+                title: "",
+                content: content,
+                images: [],
+                likes: [],
+                level: level
             )
-            let newComment = try await api.createReply(request)
-            comments.append(newComment)
-            commentCount = comments.count
+            
+            // Create the comment
+            var newComment = try await api.createReply(request)
+            
+            // Upload images and attach if any
+            if !images.isEmpty {
+                 let imagesData = images.compactMap { $0.jpegData(compressionQuality: 0.8) }
+                 if !imagesData.isEmpty {
+                     let fileIds = try await api.uploadImages(imagesData)
+                     try await api.attachImagesToReply(replyId: newComment.id, imageIds: fileIds)
+                     // Update local object to reflect images by creating a new instance (Reply props are immutable)
+                     newComment = Reply(
+                        id: newComment.id,
+                        userId: newComment.userId,
+                        userName: newComment.userName,
+                        userBio: newComment.userBio,
+                        owner: newComment.owner,
+                        userImage: newComment.userImage,
+                        postId: newComment.postId,
+                        original: newComment.original,
+                        title: newComment.title,
+                        content: newComment.content,
+                        images: fileIds,
+                        likes: newComment.likes,
+                        level: newComment.level,
+                        createdAt: newComment.createdAt,
+                        updatedAt: newComment.updatedAt
+                     )
+                 }
+            }
+            
+            // Only append to local list if it's a top-level comment
+            // Nested comments won't be visible until we implement nested UI or re-fetch
+            if replyingTo == nil {
+                // Ideally should fetch the real object or append a local version
+                // For now, appending the newComment (with images attached)
+                comments.append(newComment)
+                commentCount = comments.count
+            } else {
+                 // For nested replies, we might want to alert success or just clear
+                 // Since we can't see them yet, maybe just reload to be safe
+                 await loadComments()
+            }
+            
+            // Clear reply state
+            replyingTo = nil
+            
+            // Update Redis comment count (matches web frontend behavior)
+            try? await api.updateCommentCount(postId: post.id)
+            
+            // Update local cache
+            cacheManager.updatePostCommentCount(postId: post.id, increment: true)
         } catch {
             print("Failed to post comment: \(error)")
         }
@@ -313,6 +637,9 @@ class PostDetailViewModel {
         isLiked.toggle()
         likeCount += isLiked ? 1 : -1
         
+        // Sync to Cache immediately for Feed consistency
+        cacheManager.updatePostLikeCount(postId: post.id, increment: isLiked, isLiked: isLiked)
+        
         do {
             if isLiked {
                 try await likesAPI.likePost(postId: post.id, userId: currentUserId)
@@ -323,6 +650,8 @@ class PostDetailViewModel {
             // Revert on error
             isLiked = previousState
             likeCount = previousCount
+            // Revert Cache
+            cacheManager.updatePostLikeCount(postId: post.id, increment: isLiked, isLiked: isLiked)
             print("Failed to toggle like: \(error)")
         }
     }
@@ -352,36 +681,54 @@ extension Date {
         } else if interval < 604800 {
             let days = Int(interval / 86400)
             return "\(days)d ago"
+        } else if interval < 2419200 { // 4 weeks
+            let weeks = Int(interval / 604800)
+            return "\(weeks)w ago"
+        } else if interval < 31536000 { // 1 year
+            let months = Int(interval / 2628000)
+            return "\(months)mo ago"
         } else {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .short
-            return formatter.string(from: self)
+            let years = Int(interval / 31536000)
+            return "\(years)y ago"
         }
     }
 }
 
 #Preview {
-    NavigationStack {
+    // Helper function to create a Post instance for preview using JSON decoding
+    func createPreviewPost() -> Post {
+        let jsonString = """
+        {
+            "id": "1",
+            "user_id": "user1",
+            "username": "johndoe",
+            "user_name": "John Doe",
+            "user_bio": "Student",
+            "user_campus": "Main Campus",
+            "user_programme": "CS",
+            "user_year": 2,
+            "user_picture": "",
+            "title": "Sample Post",
+            "content": "<p>This is a sample post</p>",
+            "subject": "CS101",
+            "images": [],
+            "likes": [],
+            "comments": [],
+            "created_at": "2024-01-13T10:00:00Z",
+            "updated_at": "2024-01-13T10:00:00Z"
+        }
+        """
+        
+        let jsonData = jsonString.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        
+        return try! decoder.decode(Post.self, from: jsonData)
+    }
+    
+    return NavigationStack {
         PostDetailView(
-            post: Post(
-                id: "1",
-                userId: "user1",
-                username: "johndoe",
-                userName: "John Doe",
-                userBio: "Student",
-                userCampus: "Main Campus",
-                userProgramme: "CS",
-                userYear: 2,
-                userPicture: "/dark-profile-photo.svg",
-                title: "Sample Post",
-                content: "<p>This is a sample post</p>",
-                subject: "CS101",
-                images: [],
-                likes: [],
-                comments: [],
-                createdAt: Date(),
-                updatedAt: Date()
-            )
+            post: createPreviewPost()
         )
     }
 }

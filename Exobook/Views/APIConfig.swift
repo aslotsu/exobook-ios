@@ -14,7 +14,11 @@ enum APIConfig {
     static let usersSearchAPI = "https://users2.exobook.ca"   // Typesense users collection
     static let postsSearchAPI = "https://posts2.exobook.ca"   // Typesense posts collection
     static let chatAPI = "https://chats.exobook.ca"      // DynamoDB Chat Service (was localhost:9100)
-    
+
+    // Pusher Configuration (Real-time events)
+    static let pusherKey = "a77d99a67f8892897039"
+    static let pusherCluster = "mt1"
+
     // Add new APIs here as needed
     // static let newServiceAPI = "https://newservice.exobook.ca"
     
