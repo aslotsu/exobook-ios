@@ -11,6 +11,7 @@ struct FeedView: View {
     @Environment(\.currentUser) private var currentUser
     @State private var viewModel: FeedViewModel?
     @State private var showingComposer = false
+    @State private var showingSearch = false
     
     var body: some View {
         Group {
@@ -28,8 +29,16 @@ struct FeedView: View {
         }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showingComposer = true }) {
-                    Image(systemName: "square.and.pencil")
+                HStack(spacing: 16) {
+                    // Search button
+                    Button(action: { showingSearch = true }) {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    
+                    // Compose button
+                    Button(action: { showingComposer = true }) {
+                        Image(systemName: "square.and.pencil")
+                    }
                 }
             }
         }
@@ -37,6 +46,9 @@ struct FeedView: View {
             if let viewModel = viewModel {
                 PostComposerView(viewModel: viewModel)
             }
+        }
+        .sheet(isPresented: $showingSearch) {
+            SearchView(user: currentUser)
         }
     }
     

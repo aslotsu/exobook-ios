@@ -232,18 +232,25 @@ struct PostImagesGrid: View {
 
 extension String {
     var htmlStripped: String {
-        guard let data = self.data(using: .utf8) else { return self }
+        // Simple HTML tag removal using regex - safe for any thread
+        var result = self
         
-        let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [
-            .documentType: NSAttributedString.DocumentType.html,
-            .characterEncoding: String.Encoding.utf8.rawValue
-        ]
+        // Remove HTML tags
+        result = result.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
         
-        guard let attributedString = try? NSAttributedString(data: data, options: options, documentAttributes: nil) else {
-            return self
-        }
+        // Decode common HTML entities
+        result = result.replacingOccurrences(of: "&nbsp;", with: " ")
+        result = result.replacingOccurrences(of: "&amp;", with: "&")
+        result = result.replacingOccurrences(of: "&lt;", with: "<")
+        result = result.replacingOccurrences(of: "&gt;", with: ">")
+        result = result.replacingOccurrences(of: "&quot;", with: "\"")
+        result = result.replacingOccurrences(of: "&#39;", with: "'")
+        result = result.replacingOccurrences(of: "&apos;", with: "'")
         
-        return attributedString.string
+        // Trim whitespace
+        result = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        return result
     }
 }
 

@@ -315,6 +315,32 @@ class ExobookAPIService {
         let response: LikesResponse = try await network.get("\(APIConfig.likesAPI)/api/likes/mine/\(userId)")
         return response.likes
     }
+    
+    // MARK: - Search (Typesense)
+    
+    func searchPosts(query: String, perPage: Int = 10) async throws -> TypesenseSearchResponse {
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        // Use main website URL for search proxy
+        let endpoint = "https://exobook.ca/api/search?q=\(encodedQuery)&collection=posts&per_page=\(perPage)"
+        
+        let response: TypesenseMultiSearchResponse = try await network.get(endpoint)
+        return response.posts ?? TypesenseSearchResponse(hits: [], found: 0, page: 1)
+    }
+    
+    func searchUsers(query: String, perPage: Int = 10) async throws -> TypesenseUserSearchResponse {
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        let endpoint = "https://exobook.ca/api/search?q=\(encodedQuery)&collection=users&per_page=\(perPage)"
+        
+        let response: TypesenseMultiSearchResponse = try await network.get(endpoint)
+        return response.users ?? TypesenseUserSearchResponse(hits: [], found: 0, page: 1)
+    }
+    
+    func searchAll(query: String, perPage: Int = 10) async throws -> TypesenseMultiSearchResponse {
+        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        let endpoint = "https://exobook.ca/api/search?q=\(encodedQuery)&per_page=\(perPage)"
+        
+        return try await network.get(endpoint)
+    }
 }
 
 // MARK: - Request/Response Models
@@ -855,3 +881,92 @@ struct CourseUpdateItem: Codable {
     }
 }
 
+
+// MARK: - Typesense Search Models
+
+struct TypesenseMultiSearchResponse: Codable {
+    let posts: TypesenseSearchResponse?
+    let users: TypesenseUserSearchResponse?
+}
+
+struct TypesenseSearchResponse: Codable {
+    let hits: [TypesensePostHit]
+    let found: Int
+    let page: Int
+}
+
+struct TypesensePostHit: Codable, Identifiable {
+    var id: String { document.id }
+    let document: TypesensePostDocument
+    let highlights: [TypesenseHighlight]?
+    
+    enum CodingKeys: String, CodingKey {
+        case document
+        case highlights
+    }
+}
+
+struct TypesensePostDocument: Codable, Identifiable {
+    let id: String
+    let title: String
+    let content: String
+    let subject: String
+    let userId: String
+    let username: String
+    let userName: String?
+    let userPicture: String
+    let userBio: String
+    let userCampus: String
+    let userProgramme: String
+    let userYear: Int
+    let createdAt: Int64?
+    let updatedAt: Int64?
+    let images: [String]?
+    
+    enum CodingKeys: String, CodingKey {
+        case id, title, content, subject, username, images
+        case userId = "user_id"
+        case userName = "user_name"
+        case userPicture = "user_picture"
+        case userBio = "user_bio"
+        case userCampus = "user_campus"
+        case userProgramme = "user_programme"
+        case userYear = "user_year"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+struct TypesenseHighlight: Codable {
+    let field: String
+    let snippet: String?
+    let matchedTokens: [String]?
+    
+    enum CodingKeys: String, CodingKey {
+        case field, snippet
+        case matchedTokens = "matched_tokens"
+    }
+}
+
+struct TypesenseUserSearchResponse: Codable {
+    let hits: [TypesenseUserHit]
+    let found: Int
+    let page: Int
+}
+
+struct TypesenseUserHit: Codable, Identifiable {
+    var id: String { document.id }
+    let document: TypesenseUserDocument
+    let highlights: [TypesenseHighlight]?
+}
+
+struct TypesenseUserDocument: Codable, Identifiable {
+    let id: String
+    let email: String
+    let name: String
+    let username: String?
+    let bio: String?
+    let picture: String?
+    let campus: String?
+    let program: String?
+}

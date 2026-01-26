@@ -49,8 +49,16 @@ struct User: Codable, Identifiable {
         name.isEmpty ? email : name
     }
     
+    
     var courseCodes: [String] {
         courses?.map { $0.courseCode } ?? []
+    }
+    
+    // Check if user needs to complete profile setup
+    var needsProfileSetup: Bool {
+        // User needs setup if they don't have campus or program set
+        return campus == nil || campus?.isEmpty == true ||
+               program == nil || program?.isEmpty == true
     }
     
     enum CodingKeys: String, CodingKey {

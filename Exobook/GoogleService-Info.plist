@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>API_KEY</key>
-	<string>AIzaSyAAIawl8xDJpWq8nfvxd9JL1-8A7VIW-Yw</string>
+	<string>AIzaSyC2cn5NDg7AVLKrXSkVfJ_xkN4FnI14SaQ</string>
 	<key>GCM_SENDER_ID</key>
 	<string>165442521942</string>
 	<key>PLIST_VERSION</key>
@@ -15,15 +15,15 @@
 	<key>STORAGE_BUCKET</key>
 	<string>exobook-6b09b.firebasestorage.app</string>
 	<key>IS_ADS_ENABLED</key>
-	<false></false>
+	<false/>
 	<key>IS_ANALYTICS_ENABLED</key>
-	<false></false>
+	<false/>
 	<key>IS_APPINVITE_ENABLED</key>
-	<true></true>
+	<true/>
 	<key>IS_GCM_ENABLED</key>
-	<true></true>
+	<true/>
 	<key>IS_SIGNIN_ENABLED</key>
-	<true></true>
+	<true/>
 	<key>GOOGLE_APP_ID</key>
 	<string>1:165442521942:ios:31bfbe0284b2ba9b4b24f7</string>
 </dict>

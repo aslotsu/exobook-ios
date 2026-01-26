@@ -28,14 +28,23 @@ class AuthenticationManager {
         get { UserDefaults.standard.bool(forKey: "hasLoggedInBefore") }
         set { UserDefaults.standard.set(newValue, forKey: "hasLoggedInBefore") }
     }
+    
+    // Prevent re-entrant calls to loadUserData
+    private var isLoadingUserData = false
 
     // Session
     private var session: Session? {
         didSet {
+            // Avoid cycles by checking if session actually changed
+            guard oldValue?.user.id != session?.user.id else { return }
+            
             Task {
                 if let session = session {
                     hasLoggedInBefore = true // Mark that user has logged in
                     await loadUserData(userId: session.user.id.uuidString)
+                } else if oldValue != nil {
+                    // Only clear user if session was previously set
+                    currentUser = nil
                 }
             }
         }
@@ -51,24 +60,83 @@ class AuthenticationManager {
     // MARK: - Session Management
     
     func checkSession() async {
+        print("🔐 === Starting Session Check ===")
         isLoading = true
         
         do {
-            session = try await supabaseClient.auth.session
-            
-            // Listen for auth state changes
+            // Set up auth state listener FIRST to catch any events
             Task {
+                print("👂 Setting up auth state listener...")
                 for await (event, session) in await supabaseClient.auth.authStateChanges {
+                    print("🔔 Auth state changed: \(event)")
                     await handleAuthStateChange(event: event, session: session)
                 }
             }
+            
+            // Small delay to ensure listener is ready
+            try? await Task.sleep(for: .milliseconds(100))
+            
+            // Now check for existing session
+            print("🔍 Checking for existing session...")
+            session = try await supabaseClient.auth.session
+            
+            // If we have a session, wait for user data to load with timeout
+            if session != nil {
+                print("✅ Session found, waiting for user data...")
+                
+                // Wait for user data with a timeout (5 seconds max)
+                var attempts = 0
+                let maxAttempts = 50 // 5 seconds total (50 * 100ms)
+                
+                while currentUser == nil && attempts < maxAttempts {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    attempts += 1
+                }
+                
+                if currentUser != nil {
+                    print("✅ User data loaded successfully")
+                } else {
+                    print("⚠️ User data loading timed out after \(attempts * 100)ms")
+                    // Don't set isLoading = false here, let it continue
+                    // The fallback in loadUserData should handle this
+                }
+            } else {
+                print("ℹ️ No existing session found")
+            }
         } catch {
-            print("No active session: \(error)")
-            session = nil
+            print("❌ Session check error: \(error)")
+            // Only clear if not already nil to avoid triggering didSet
+            if session != nil {
+                session = nil
+            }
             currentUser = nil
         }
         
-        isLoading = false
+        // Only set loading to false if we have a definitive state
+        // Either we have a user, or we confirmed there's no session
+        if currentUser != nil || session == nil {
+            print("🏁 Session check complete - Loading: false")
+            isLoading = false
+        } else {
+            // We have a session but no user data yet
+            // Wait a bit more before giving up
+            print("⏳ Waiting additional time for user data...")
+            try? await Task.sleep(for: .seconds(2))
+            
+            if currentUser == nil {
+                print("❌ Failed to load user data - clearing session")
+                // Clear the session and show login
+                if session != nil {
+                    session = nil
+                }
+                currentUser = nil
+            }
+            
+            print("🏁 Session check complete (delayed) - Loading: false")
+            isLoading = false
+        }
+        
+        print("🔐 === Session Check Complete ===")
     }
     
     private func handleAuthStateChange(event: AuthChangeEvent, session authSession: Session?) async {
@@ -165,11 +233,22 @@ class AuthenticationManager {
     // MARK: - User Data
     
     private func loadUserData(userId: String) async {
+        // Prevent re-entrant calls
+        guard !isLoadingUserData else {
+            print("⚠️ Already loading user data, skipping...")
+            return
+        }
+        
+        isLoadingUserData = true
+        defer { isLoadingUserData = false }
+        
+        print("📥 === Loading User Data ===")
+        print("User ID: \(userId)")
+        
         do {
             // Convert UUID to lowercase for backend API compatibility
             let lowercaseUserId = userId.lowercased()
             
-            print("=== 📥 Loading User Data ===")
             print("User ID (lowercase): \(lowercaseUserId)")
             
             // Fetch user profile
@@ -232,14 +311,16 @@ class AuthenticationManager {
                 print("⚠️ No courses found or courses list is empty")
             }
             
+            // Set current user FIRST
             currentUser = user
             print("✅ User data loaded successfully")
             print("🔍 Final user courses: \(user.courses?.count ?? 0) courses")
             print("🔍 Course codes: \(user.courseCodes)")
-            print("=========================")
 
             // Setup FCM after successful user load
             NotificationManager.shared.setupFCM(userId: user.id)
+            
+            print("=========================")
         } catch {
             print("=== ❌ Failed to Load User Data ===")
             print("Error: \(error)")
@@ -266,8 +347,15 @@ class AuthenticationManager {
 
                 // Setup FCM even with fallback user
                 NotificationManager.shared.setupFCM(userId: fallbackUser.id)
+                
+                print("✅ Fallback user set successfully")
             } else {
                 print("❌ No Supabase session available for fallback")
+                // Clear everything to force re-login
+                currentUser = nil
+                if session != nil {
+                    self.session = nil
+                }
             }
             print("=========================")
         }

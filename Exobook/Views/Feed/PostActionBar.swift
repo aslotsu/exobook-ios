@@ -15,6 +15,7 @@ struct PostActionBar: View {
     let onBookmark: () -> Void
 
     @Environment(\.currentUser) private var currentUser
+    private let realtimeManager = RealtimeManager.shared
     
     init(
         post: Post,
@@ -31,16 +32,19 @@ struct PostActionBar: View {
     }
 
     private var likeCount: Int {
-        post.likeCount
+        // Use RealtimeManager for live counts (includes cached data from Redis)
+        realtimeManager.getLikeCount(for: post.id)
     }
 
     private var commentCount: Int {
-        post.commentCount
+        // Use RealtimeManager for live counts (includes cached data from Redis)
+        realtimeManager.getCommentCount(for: post.id)
     }
     
     private var isLiked: Bool {
         guard let userId = currentUser?.id else { return false }
-        return post.likes?.contains(userId) ?? false
+        // Use RealtimeManager for accurate liked state
+        return realtimeManager.isLiked(post.id)
     }
     
     var body: some View {
