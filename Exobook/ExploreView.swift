@@ -62,19 +62,13 @@ struct ExploreView: View {
                 }
                 .padding()
             }
-            .background(adaptiveBackground)
+            .background(Color.appBackground)
         }
         .task {
             await viewModel.loadRecommendedContent()
         }
     }
-    
-    @Environment(\.colorScheme) private var colorScheme
-    
-    private var adaptiveBackground: Color {
-        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
-    }
-    
+
     private func initializeViewModel(for user: User) {
         let courseCodes = user.courseCodes
         let newViewModel = ExploreViewModel(

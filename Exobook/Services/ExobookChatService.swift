@@ -6,35 +6,19 @@
 //
 
 import Foundation
-import PusherSwift
+import Combine
 
 @MainActor
 final class ExobookChatService: ChatService {
     private let chatAPI = ChatAPIService()
     let currentUserId: String
-    private var realtimeManager = RealtimeManager.shared
-    
-    // Pusher client for chat real-time messaging
-    private var pusher: Pusher!
-    
-    // Store active chat subscriptions: chatId -> (channel, callback)
-    private var activeSubscriptions: [String: (PusherChannel, (Message) -> Void)] = [:]
-    
+    private let realtimeManager = RealtimeManager.shared
+
+    // Per-chat Combine subscriptions to RealtimeManager's chat publisher.
+    private var subscriptions: [String: AnyCancellable] = [:]
+
     init(currentUserId: String) {
         self.currentUserId = currentUserId
-        setupPusher()
-    }
-    
-    private func setupPusher() {
-        // Pusher credentials from centralized configuration
-        let pusherKey = PusherConfig.key
-        let pusherCluster = PusherConfig.cluster
-
-        let options = PusherClientOptions(host: .cluster(pusherCluster))
-        pusher = Pusher(key: pusherKey, options: options)
-        pusher.connect()
-
-        print("🔴 Chat Pusher configured for user: \(currentUserId)")
     }
     
     func fetchChats() async throws -> [ChatSummary] {
@@ -120,108 +104,19 @@ final class ExobookChatService: ChatService {
     }
     
     func subscribeToMessages(chatId: String, onEvent: @escaping (Message) -> Void) async throws {
-        print("📡 Subscribing to messages for chat: \(chatId)")
-        
-        // Unsubscribe if already subscribed to this chat
-        if activeSubscriptions[chatId] != nil {
-            unsubscribe(chatId: chatId)
-        }
-        
-        // Channel name format from backend: "chat-{chatID}"
-        let channelName = "chat-\(chatId)"
-        let channel = pusher.subscribe(channelName)
-        
-        // Bind to "new-message" event from backend
-        channel.bind(eventName: "new-message") { [weak self] event in
-            print("📥 [PUSHER EVENT] new-message received")
-            guard let self = self else { return }
-            
-            // Extract JSON data from PusherEvent
-            guard let eventData = event.data,
-                  let jsonData = eventData.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-                print("❌ Failed to parse new-message event data")
-                print("📦 Event data string: \(event.data ?? "nil")")
-                return
-            }
-            
-            print("📦 Parsed new-message JSON: \(json)")
-            Task { @MainActor in
-                self.handleNewMessage(data: json, chatId: chatId, onEvent: onEvent)
-            }
-        }
-        
-        // Store subscription
-        activeSubscriptions[chatId] = (channel, onEvent)
-        
-        print("✅ Subscribed to channel: \(channelName)")
+        // Cancel any existing subscription for this chat before re-subscribing.
+        subscriptions[chatId]?.cancel()
+
+        let cancellable = realtimeManager
+            .chatMessagePublisher(chatId: chatId)
+            .sink(receiveValue: onEvent)
+
+        subscriptions[chatId] = cancellable
     }
-    
+
     func unsubscribe(chatId: String) {
-        print("🔇 Unsubscribing from chat: \(chatId)")
-        
-        guard let (channel, _) = activeSubscriptions[chatId] else {
-            print("⚠️ No active subscription for chat: \(chatId)")
-            return
-        }
-        
-        let channelName = "chat-\(chatId)"
-        channel.unbindAll()
-        pusher.unsubscribe(channelName)
-        activeSubscriptions.removeValue(forKey: chatId)
-        
-        print("✅ Unsubscribed from channel: \(channelName)")
-    }
-    
-    // MARK: - Private Helpers
-    
-    private func handleNewMessage(data: [String: Any], chatId: String, onEvent: @escaping (Message) -> Void) {
-        print("🔍 Processing new-message event...")
-        
-        // Parse message event from backend
-        // Backend sends: ChatMessageEvent with chatID, messageID, userID, username, words, images, files, timestamp
-        guard let messageId = data["message_id"] as? String,
-              let userId = data["user_id"] as? String,
-              let timestamp = data["timestamp"] as? Int64 else {
-            print("❌ Invalid new-message data structure!")
-            print("📦 Expected: {message_id, user_id, timestamp, ...}")
-            print("📦 Received: \(String(describing: data))")
-            return
-        }
-        
-        let words = data["words"] as? String ?? ""
-        let username = data["username"] as? String ?? "Unknown"
-        let images = data["images"] as? [String]
-        let files = data["files"] as? [String]
-        
-        print("💬 NEW-MESSAGE PARSED SUCCESSFULLY:")
-        print("   📌 Message ID: \(messageId)")
-        print("   👤 From: \(username) (\(userId))")
-        print("   💭 Text: \(String(words.prefix(50)))")
-        print("   🔄 Is current user: \(userId == currentUserId ? "YES" : "NO")")
-        
-        // Don't process messages from current user (they're already shown optimistically)
-        if userId == currentUserId {
-            print("⏩ Skipping own message (already shown optimistically)")
-            return
-        }
-        
-        // Convert timestamp (milliseconds) to Date
-        let date = Date(timeIntervalSince1970: Double(timestamp) / 1000.0)
-        
-        let message = Message(
-            id: messageId,
-            chatId: chatId,
-            senderId: userId,
-            text: words,
-            createdAt: date,
-            isMine: false,
-            images: images,
-            files: files
-        )
-        
-        print("✅ Calling onEvent callback to append message to UI")
-        onEvent(message)
+        subscriptions.removeValue(forKey: chatId)?.cancel()
+        realtimeManager.unsubscribeFromChat(chatId: chatId)
     }
 }
 
@@ -260,7 +155,7 @@ struct MessageResponse: Codable {
 @MainActor
 class ChatAPIService {
     private let network = NetworkService.shared
-    private let chatBaseURL = "https://mchats.exobook.ca/api"
+    private let chatBaseURL = APIConfig.chatAPI
     
     func getUserChats(userId: String) async throws -> [Chat] {
         let url = "\(chatBaseURL)/users/\(userId)/chats"

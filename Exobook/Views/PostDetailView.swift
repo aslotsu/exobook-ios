@@ -45,7 +45,7 @@ struct PostDetailView: View {
             }
             .padding()
         }
-        .background(adaptiveBackground)
+        .background(Color.appBackground)
         .navigationTitle("Post")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -217,11 +217,6 @@ struct PostDetailView: View {
         }
     }
     
-    @Environment(\.colorScheme) private var colorScheme
-    
-    private var adaptiveBackground: Color {
-        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
-    }
 }
 
 // MARK: - Comment Row

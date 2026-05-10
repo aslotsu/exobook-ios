@@ -41,7 +41,7 @@ struct ChatThreadView: View {
         }
         
         return mainStack
-            .background(adaptiveBackground)
+            .background(Color.appBackground)
             .navigationTitle(chat.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
@@ -257,11 +257,6 @@ struct ChatThreadView: View {
         }
     }
     
-    @Environment(\.colorScheme) private var colorScheme
-    
-    private var adaptiveBackground: Color {
-        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
-    }
 }
 
 private struct MessageList: View {
@@ -326,8 +321,7 @@ private struct MessageList: View {
 
 private struct ScrollToBottomButton: View {
     let action: () -> Void
-    @Environment(\.colorScheme) private var colorScheme
-    
+
     var body: some View {
         Button(action: action) {
             ZStack {

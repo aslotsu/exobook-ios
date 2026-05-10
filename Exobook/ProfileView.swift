@@ -52,7 +52,7 @@ struct ProfileView: View {
                     .padding()
             }
         }
-        .background(adaptiveBackground)
+        .background(Color.appBackground)
         .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -252,12 +252,6 @@ struct ProfileView: View {
             // ActionButton(icon: "person.2", title: "Friends", action: {})
             ActionButton(icon: "arrow.right.circle", title: "Sign Out", color: .red, action: signOut)
         }
-    }
-    
-    @Environment(\.colorScheme) private var colorScheme
-    
-    private var adaptiveBackground: Color {
-        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
     }
     
     private func signOut() {

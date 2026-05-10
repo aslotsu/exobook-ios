@@ -63,12 +63,12 @@
          </EnvironmentVariable>
          <EnvironmentVariable
             key = "SUPABASE_PUBLIC_KEY"
-            value = "sb_publishable_-72SJSLo5WVInjunJwZ6yg_zL-6k6Ep"
+            value = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt6bXNua3B5eGdvY3RreGppb3l1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk4OTc2MDQsImV4cCI6MjA4NTQ3MzYwNH0.lml7aDKGTSUKQU3HyzLStG5Rjbr_lvuZBoFoUrdXOU4"
             isEnabled = "YES">
          </EnvironmentVariable>
          <EnvironmentVariable
             key = "SUPABASE_URL"
-            value = "https://wszlgkiivyejlykntghj.supabase.co"
+            value = "https://kzmsnkpyxgoctkxjioyu.supabase.co"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>

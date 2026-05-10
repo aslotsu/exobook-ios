@@ -59,12 +59,8 @@ class FeedViewModel {
         hasMore = true
 
         do {
-            // Add general campus feed to courses
-            var coursesToFetch = userCourses
-            coursesToFetch.append("General - \(userCampus)")
-
             let request = AllPostsRequest(
-                courses: coursesToFetch,
+                courses: userCourses,
                 year: userYear,
                 id: currentUserId
             )
@@ -121,11 +117,8 @@ class FeedViewModel {
         currentPage += 1
 
         do {
-            var coursesToFetch = userCourses
-            coursesToFetch.append("General - \(userCampus)")
-
             let request = AllPostsRequest(
-                courses: coursesToFetch,
+                courses: userCourses,
                 year: userYear,
                 id: currentUserId
             )

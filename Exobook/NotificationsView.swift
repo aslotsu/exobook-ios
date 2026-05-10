@@ -10,7 +10,6 @@ import SwiftUI
 import SwiftData
 
 struct NotificationsView: View {
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.currentUser) private var currentUser
     
     // Sort by timestamp descending to show newest first
@@ -25,7 +24,7 @@ struct NotificationsView: View {
                 notificationsList
             }
         }
-        .background(adaptiveBackground)
+        .background(Color.appBackground)
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -38,10 +37,6 @@ struct NotificationsView: View {
                 }
             }
         }
-    }
-    
-    private var adaptiveBackground: Color {
-        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
     }
     
     // MARK: - Actions

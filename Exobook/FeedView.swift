@@ -57,7 +57,7 @@ struct FeedView: View {
         VStack(spacing: 0) {
             // Course filter section (fixed at top)
             CourseFilterBar(viewModel: viewModel)
-                .background(adaptiveBackground)
+                .background(Color.appBackground)
             
             Divider()
             
@@ -184,16 +184,10 @@ struct FeedView: View {
                 await viewModel.loadFeed()
                 viewModel.subscribeToRealtimeUpdates()
             }
-            .background(adaptiveBackground)
+            .background(Color.appBackground)
         }
     }
-    
-    @Environment(\.colorScheme) private var colorScheme
-    
-    private var adaptiveBackground: Color {
-        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
-    }
-    
+
     private func initializeViewModel(for user: User) {
         // Get user's enrolled course codes
         var feedCourses = user.courseCodes

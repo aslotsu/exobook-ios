@@ -25,7 +25,7 @@ struct ChatsListView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(adaptiveBackground)
+        .background(Color.appBackground)
         .navigationTitle("Chats")
         .navigationDestination(for: ChatSummary.self) { chat in
             ChatThreadView(chat: chat, service: service, currentUserId: service.currentUserId)
@@ -94,11 +94,6 @@ struct ChatsListView: View {
         }
     }
     
-    @Environment(\.colorScheme) private var colorScheme
-    
-    private var adaptiveBackground: Color {
-        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
-    }
 }
 
 struct ChatRow: View {

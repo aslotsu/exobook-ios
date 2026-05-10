@@ -28,7 +28,7 @@ struct LikedPostsView: View {
                     }
             }
         }
-        .background(adaptiveBackground)
+        .background(Color.appBackground)
         .navigationTitle("Liked Posts")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -86,11 +86,6 @@ struct LikedPostsView: View {
         }
     }
     
-    @Environment(\.colorScheme) private var colorScheme
-    
-    private var adaptiveBackground: Color {
-        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
-    }
 }
 
 // MARK: - Liked Post Card
@@ -101,8 +96,7 @@ struct LikedPostCard: View {
     @State private var post: Post?
     @State private var isLoading = false
     @State private var hasAppeared = false
-    @Environment(\.colorScheme) private var colorScheme
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let post = post {
@@ -247,7 +241,7 @@ struct LikedPostCard: View {
                 }
             }
         }
-        .background(cardBackground)
+        .background(Color.appCardBackground)
         .cornerRadius(12)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
@@ -262,10 +256,6 @@ struct LikedPostCard: View {
                 await loadPost()
             }
         }
-    }
-    
-    private var cardBackground: Color {
-        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
     }
     
     private func loadPost() async {

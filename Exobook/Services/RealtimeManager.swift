@@ -36,8 +36,12 @@ final class RealtimeManager {
     private var commentsChannel: PusherChannel?
     private var likesChannel: PusherChannel?
     private var repliesChannel: PusherChannel?
-    private var chatsChannel: PusherChannel?
-    private var userChatChannel: PusherChannel?
+
+    // Per-chat channels and message publishers, keyed by chatId.
+    // Chat subscriptions are demand-loaded from ExobookChatService rather than
+    // eagerly subscribed at configure() time.
+    private var chatChannels: [String: PusherChannel] = [:]
+    private var chatMessageSubjects: [String: PassthroughSubject<Message, Never>] = [:]
 
     // Counts dictionaries (postId: count) - in-memory for fast access
     var likeCount: [String: Int] = [:]
@@ -68,15 +72,86 @@ final class RealtimeManager {
         commentsChannel = pusher.subscribe("reply")
         likesChannel = pusher.subscribe("LIKES")
         repliesChannel = pusher.subscribe("REPLIES")
-        chatsChannel = pusher.subscribe("chats")
-        
-        // User-specific chat channel
-        userChatChannel = pusher.subscribe("user-\(userId)-chats")
-        
+
         setupEventHandlers()
         pusher.connect()
-        
+
         print("🔴 Pusher configured for user: \(userId)")
+    }
+
+    // MARK: - Chat Subscriptions
+
+    /// Subscribe to live messages on a chat thread. Returns a publisher the
+    /// caller can sink on. Idempotent: repeated calls return the same publisher.
+    func chatMessagePublisher(chatId: String) -> AnyPublisher<Message, Never> {
+        if let subject = chatMessageSubjects[chatId] {
+            return subject.eraseToAnyPublisher()
+        }
+
+        let subject = PassthroughSubject<Message, Never>()
+        chatMessageSubjects[chatId] = subject
+
+        guard let pusher = pusher else {
+            print("⚠️ Pusher not configured before subscribing to chat: \(chatId)")
+            return subject.eraseToAnyPublisher()
+        }
+
+        let channelName = "chat-\(chatId)"
+        let channel = pusher.subscribe(channelName)
+        chatChannels[chatId] = channel
+
+        channel.bind(eventName: "new-message") { [weak self] event in
+            guard let self = self,
+                  let eventData = event.data,
+                  let jsonData = eventData.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+                print("❌ Failed to parse new-message event for chat: \(chatId)")
+                return
+            }
+
+            Task { @MainActor in
+                guard let message = self.decodeChatMessage(json, chatId: chatId) else { return }
+                self.chatMessageSubjects[chatId]?.send(message)
+            }
+        }
+
+        print("✅ Subscribed to chat channel: \(channelName)")
+        return subject.eraseToAnyPublisher()
+    }
+
+    /// Unsubscribe from a chat thread. Tears down the channel and publisher.
+    func unsubscribeFromChat(chatId: String) {
+        if let channel = chatChannels.removeValue(forKey: chatId) {
+            channel.unbindAll()
+        }
+        pusher?.unsubscribe("chat-\(chatId)")
+        chatMessageSubjects.removeValue(forKey: chatId)
+        print("✅ Unsubscribed from chat: \(chatId)")
+    }
+
+    /// Decode a Pusher `new-message` payload into a `Message`.
+    /// Returns nil for messages from the current user (already shown optimistically).
+    private func decodeChatMessage(_ data: [String: Any], chatId: String) -> Message? {
+        guard let messageId = data["message_id"] as? String,
+              let userId = data["user_id"] as? String,
+              let timestamp = data["timestamp"] as? Int64 else {
+            print("❌ Invalid new-message structure for chat \(chatId): \(data)")
+            return nil
+        }
+
+        // Skip echoes of the current user's own optimistic messages.
+        if userId == currentUserId { return nil }
+
+        return Message(
+            id: messageId,
+            chatId: chatId,
+            senderId: userId,
+            text: data["words"] as? String ?? "",
+            createdAt: Date(timeIntervalSince1970: Double(timestamp) / 1000.0),
+            isMine: false,
+            images: data["images"] as? [String],
+            files: data["files"] as? [String]
+        )
     }
     
     // MARK: - Event Handlers Setup
@@ -675,21 +750,21 @@ final class RealtimeManager {
         commentsChannel?.unbindAll()
         likesChannel?.unbindAll()
         repliesChannel?.unbindAll()
-        chatsChannel?.unbindAll()
-        userChatChannel?.unbindAll()
-        
+
         pusher?.unsubscribe("posts")
         pusher?.unsubscribe("reply")
         pusher?.unsubscribe("LIKES")
         pusher?.unsubscribe("REPLIES")
-        pusher?.unsubscribe("chats")
-        
-        if let userId = currentUserId {
-            pusher?.unsubscribe("user-\(userId)-chats")
+
+        for (chatId, channel) in chatChannels {
+            channel.unbindAll()
+            pusher?.unsubscribe("chat-\(chatId)")
         }
-        
+        chatChannels.removeAll()
+        chatMessageSubjects.removeAll()
+
         pusher?.disconnect()
-        
+
         print("🔴 Pusher disconnected")
     }
 }

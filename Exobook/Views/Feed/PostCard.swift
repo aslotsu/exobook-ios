@@ -62,7 +62,7 @@ struct PostCard: View {
                 onBookmark: onBookmark
             )
         }
-        .background(adaptiveCardBackground)
+        .background(Color.appCardBackground)
         .cornerRadius(12)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
@@ -136,11 +136,6 @@ struct PostCard: View {
         }
     }
     
-    @Environment(\.colorScheme) private var colorScheme
-    
-    private var adaptiveCardBackground: Color {
-        colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
-    }
 }
 
 // MARK: - PostHeader

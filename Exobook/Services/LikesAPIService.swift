@@ -11,26 +11,33 @@ import Foundation
 class LikesAPIService {
     private let network = NetworkService.shared
     private let baseURL = APIConfig.likesAPI
-    
+    private let mainAPI = APIConfig.baseAPI
+
     // MARK: - Health Check
-    
+
     func healthCheck() async throws -> LikesHealthResponse {
         try await network.get("\(baseURL)/")
     }
-    
+
     // MARK: - Like Operations
-    
-    /// Like a post
+
+    /// Like a post. Mirrors web likeManager: writes to DynamoDB and bumps the Redis counter in parallel.
     func likePost(postId: String, userId: String) async throws -> EmptyResponse {
-        try await network.post("\(baseURL)/api/likes/new", body: LikeRequest(
+        async let dynamo: EmptyResponse = network.post("\(baseURL)/api/likes/new", body: LikeRequest(
             postId: postId,
             userId: userId
         ))
+        async let redis: EmptyResponse = network.post("\(mainAPI)/api/redis/likes/\(postId)/\(userId)", body: EmptyLikeBody())
+        let (result, _) = try await (dynamo, redis)
+        return result
     }
-    
-    /// Unlike a post
+
+    /// Unlike a post. Mirrors web likeManager: removes from DynamoDB and decrements the Redis counter in parallel.
     func unlikePost(postId: String, userId: String) async throws -> EmptyResponse {
-        try await network.delete("\(baseURL)/api/likes/\(postId)/\(userId)")
+        async let dynamo: EmptyResponse = network.delete("\(baseURL)/api/likes/\(postId)/\(userId)")
+        async let redis: EmptyResponse = network.post("\(mainAPI)/api/redis/likes/d/\(postId)/\(userId)", body: EmptyLikeBody())
+        let (result, _) = try await (dynamo, redis)
+        return result
     }
     
     /// Get post like count
@@ -61,6 +68,8 @@ class LikesAPIService {
 }
 
 // MARK: - Request Models
+
+private struct EmptyLikeBody: Encodable {}
 
 struct LikeRequest: Encodable {
     let postId: String

@@ -13,11 +13,12 @@ enum APIConfig {
     static let likesAPI = "https://likes.exobook.ca"     // dynamodb-go-api (DynamoDB likes service)
     static let usersSearchAPI = "https://users2.exobook.ca"   // Typesense users collection
     static let postsSearchAPI = "https://posts2.exobook.ca"   // Typesense posts collection
-    static let chatAPI = "https://chats.exobook.ca"      // DynamoDB Chat Service (was localhost:9100)
+    static let chatAPI = "https://mchats.exobook.ca/api"      // Mongo Chat Service (matches web chatUrl)
 
-    // Pusher Configuration (Real-time events)
-    static let pusherKey = "a77d99a67f8892897039"
-    static let pusherCluster = "mt1"
+    // Pusher credentials are sourced from PusherConfig (env-driven).
+    // Re-exported here for sites that already imported APIConfig.
+    static var pusherKey: String { PusherConfig.key }
+    static var pusherCluster: String { PusherConfig.cluster }
 
     // Add new APIs here as needed
     // static let newServiceAPI = "https://newservice.exobook.ca"

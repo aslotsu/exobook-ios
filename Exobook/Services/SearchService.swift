@@ -270,11 +270,12 @@ struct SearchDocument: Codable {
             "updated_at": ISO8601DateFormatter().string(from: Date())
         ]
         
-        let jsonData = try! JSONSerialization.data(withJSONObject: postDict)
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: postDict) else {
+            return nil
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        
-        return try! decoder.decode(Post.self, from: jsonData)
+        return try? decoder.decode(Post.self, from: jsonData)
     }
     
     enum CodingKeys: String, CodingKey {

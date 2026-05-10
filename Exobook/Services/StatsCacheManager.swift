@@ -20,7 +20,6 @@ final class StatsCacheManager {
         // Configure SwiftData model container
         let schema = Schema([
             CachedPostStats.self,
-            CachedPostStats.self,
             CachedReplyStats.self,
             CachedNotification.self
         ])

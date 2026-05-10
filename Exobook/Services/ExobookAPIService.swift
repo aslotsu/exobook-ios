@@ -74,14 +74,9 @@ class ExobookAPIService {
         try await network.put("\(baseURL)/api/post/\(id)", body: post)
     }
     
-    func likePost(id: String, userId: String) async throws -> EmptyResponse {
-        try await network.patch("\(baseURL)/post/\(id)/\(userId)", body: EmptyBody())
-    }
-    
-    func unlikePost(id: String, userId: String) async throws -> EmptyResponse {
-        try await network.patch("\(baseURL)/api/post/\(id)/\(userId)", body: EmptyBody())
-    }
-    
+    // NOTE: Post like/unlike now lives in LikesAPIService (DynamoDB likes service)
+    // and the legacy main-API patch endpoints have been removed to avoid drift.
+
     // MARK: - Redis Stats (Batch Fetching)
 
     private struct BatchStatsResponse: Decodable {
@@ -90,13 +85,13 @@ class ExobookAPIService {
 
     func getBatchLikeCounts(userId: String, postIds: [String]) async throws -> [String: Int] {
         let request = BatchStatsRequest(postIds: postIds)
-        let response: [String: Int] = try await network.post("\(baseURL)/redis/likes/mine/\(userId)", body: request)
+        let response: [String: Int] = try await network.post("\(baseURL)/api/redis/likes/mine/\(userId)", body: request)
         return response
     }
 
     func getBatchCommentCounts(userId: String, postIds: [String]) async throws -> [String: Int] {
         let request = BatchCommentStatsRequest(commentIds: postIds)
-        let response: [String: Int] = try await network.post("\(baseURL)/redis/likes/mine/comment/\(userId)", body: request)
+        let response: [String: Int] = try await network.post("\(baseURL)/api/redis/likes/mine/comment/\(userId)", body: request)
         return response
     }
     

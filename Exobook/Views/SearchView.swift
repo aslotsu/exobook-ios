@@ -329,8 +329,6 @@ struct SearchView: View {
         decoder.dateDecodingStrategy = .iso8601
         return try? decoder.decode(Post.self, from: jsonData)
     }
-    
-    @Environment(\.colorScheme) private var colorScheme
 }
 
 // MARK: - Typesense Search Result Card

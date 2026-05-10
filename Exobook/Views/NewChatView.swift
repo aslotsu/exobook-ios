@@ -198,7 +198,7 @@ struct NewChatView: View {
            
         }
         
-        let url = "https://mchats.exobook.ca/api/check-chat?user1=\(user1)&user2=\(user2)"
+        let url = "\(APIConfig.chatAPI)/check-chat?user1=\(user1)&user2=\(user2)"
         let response: Response = try await NetworkService.shared.get(url)
         return response.data.hasDirectChat
     }
@@ -212,7 +212,7 @@ struct NewChatView: View {
             let found: Bool
         }
         
-        let url = "https://mchats.exobook.ca/api/find-chat?user1=\(user1)&user2=\(user2)"
+        let url = "\(APIConfig.chatAPI)/find-chat?user1=\(user1)&user2=\(user2)"
         let response: Response = try await NetworkService.shared.get(url)
         
         // Return nil if not found or chat_id is empty
@@ -298,7 +298,7 @@ struct NewChatView: View {
         }
         
         let response: CreateChatResponse = try await NetworkService.shared.post(
-            "https://mchats.exobook.ca/api/chats/with-members",
+            "\(APIConfig.chatAPI)/chats/with-members",
             body: request
         )
         

@@ -11,6 +11,8 @@ struct LoadingView: View {
     @State private var isAnimating = false
     @State private var dotsCount = 0
     @State private var currentMessageIndex = 0
+    @State private var dotsTimer: Timer?
+    @State private var messageTimer: Timer?
     @Environment(\.colorScheme) private var colorScheme
 
     // Cool loading messages
@@ -97,10 +99,17 @@ struct LoadingView: View {
             startDotsAnimation()
             startMessageRotation()
         }
+        .onDisappear {
+            dotsTimer?.invalidate()
+            dotsTimer = nil
+            messageTimer?.invalidate()
+            messageTimer = nil
+        }
     }
 
     private func startDotsAnimation() {
-        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
+        dotsTimer?.invalidate()
+        dotsTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             withAnimation {
                 dotsCount = (dotsCount + 1) % 3
             }
@@ -111,8 +120,8 @@ struct LoadingView: View {
         // Pick a random starting message
         currentMessageIndex = Int.random(in: 0..<loadingMessages.count)
 
-        // Rotate through messages every 700ms
-        Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { timer in
+        messageTimer?.invalidate()
+        messageTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { _ in
             withAnimation(.easeInOut(duration: 0.3)) {
                 currentMessageIndex = (currentMessageIndex + 1) % loadingMessages.count
             }

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os
 
 enum NetworkError: Error {
     case invalidURL
@@ -104,25 +105,15 @@ class NetworkService {
             request.setValue(value, forHTTPHeaderField: key)
         }
         
-        // Log request (debug only)
-        #if DEBUG
-        print("🌐 [UPLOAD] \(endpoint)")
-        print("📦 Data size: \(data.count) bytes")
-        #endif
-        
+        Log.api.debug("UPLOAD \(endpoint, privacy: .public) (\(data.count, privacy: .public) bytes)")
+
         let (responseData, response) = try await session.data(for: request)
-        
+
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NetworkError.invalidResponse
         }
-        
-        // Log response (debug only)
-        #if DEBUG
-        print("📥 [\(httpResponse.statusCode)] \(endpoint)")
-        if let responseString = String(data: responseData, encoding: .utf8) {
-            print("📄 Response: \(responseString)")
-        }
-        #endif
+
+        Log.api.debug("\(httpResponse.statusCode, privacy: .public) UPLOAD \(endpoint, privacy: .public)")
         
         switch httpResponse.statusCode {
         case 200...299:
@@ -178,27 +169,18 @@ class NetworkService {
             }
         }
         
-        // Log request (debug only)
-        #if DEBUG
-        print("🌐 [\(method)] \(endpoint)")
+        Log.api.debug("\(method, privacy: .public) \(endpoint, privacy: .public)")
         if let body = request.httpBody, let bodyString = String(data: body, encoding: .utf8) {
-            print("📦 Body: \(bodyString)")
+            Log.api.debug("body \(bodyString, privacy: .private(mask: .hash))")
         }
-        #endif
-        
+
         let (data, response) = try await session.data(for: request)
-        
+
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NetworkError.invalidResponse
         }
-        
-        // Log response (debug only)
-        #if DEBUG
-        print("📥 [\(httpResponse.statusCode)] \(endpoint)")
-        if let responseString = String(data: data, encoding: .utf8) {
-            print("📄 Response: \(responseString)")
-        }
-        #endif
+
+        Log.api.debug("\(httpResponse.statusCode, privacy: .public) \(method, privacy: .public) \(endpoint, privacy: .public)")
         
         // Handle HTTP errors
         switch httpResponse.statusCode {
