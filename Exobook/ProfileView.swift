@@ -11,12 +11,16 @@ import SDWebImageSwiftUI
 
 struct ProfileView: View {
     @Environment(\.currentUser) private var currentUser
+    private let friendsAPI = FriendsAPIService()
     @State private var showingSettings = false
     @State private var isRefreshing = false
     @State private var showingLikedPosts = false
     @State private var showingSavedPosts = false
     @State private var showingMyPosts = false
     @State private var showingEditProfile = false
+    @State private var showingFriends = false
+    @State private var showingFriendRequests = false
+    @State private var pendingRequestsCount = 0
     
     var body: some View {
         ScrollView {
@@ -33,15 +37,15 @@ struct ProfileView: View {
                     
                     Divider()
                         .padding(.vertical, 16)
-                    
-                    // Academic Info
-                    academicInfoSection(user: user)
-                    
+
+                    // Quick Actions (keep high so social actions are easy to find)
+                    quickActionsSection
+
                     Divider()
                         .padding(.vertical, 16)
                     
-                    // Quick Actions
-                    quickActionsSection
+                    // Academic Info
+                    academicInfoSection(user: user)
                     
                     Spacer(minLength: 20)
                 }
@@ -88,6 +92,19 @@ struct ProfileView: View {
                 EditProfileView(user: user)
             }
         }
+        .sheet(isPresented: $showingFriends) {
+            NavigationStack {
+                FriendsListView()
+            }
+        }
+        .sheet(isPresented: $showingFriendRequests) {
+            NavigationStack {
+                FriendRequestsInboxView()
+            }
+        }
+        .task(id: currentUser?.id) {
+            await refreshPendingRequestsCount()
+        }
         .onAppear {
             debugPrintUserInfo()
         }
@@ -97,8 +114,23 @@ struct ProfileView: View {
         isRefreshing = true
         print("🔄 Refreshing profile data...")
         await AuthenticationManager.shared.refreshUserData()
+        await refreshPendingRequestsCount()
         debugPrintUserInfo()
         isRefreshing = false
+    }
+
+    private func refreshPendingRequestsCount() async {
+        guard let userId = currentUser?.id else {
+            pendingRequestsCount = 0
+            return
+        }
+
+        do {
+            let response = try await friendsAPI.getPendingRequests(userId: userId, page: 1, limit: 1)
+            pendingRequestsCount = response.count
+        } catch {
+            pendingRequestsCount = 0
+        }
     }
     
     private func debugPrintUserInfo() {
@@ -247,9 +279,14 @@ struct ProfileView: View {
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
             
-            ActionButton(icon: "bookmark", title: "Saved Posts", action: { showingSavedPosts = true })
-            // ActionButton(icon: "heart", title: "Liked Posts", action: { showingLikedPosts = true })
-            // ActionButton(icon: "person.2", title: "Friends", action: {})
+            ActionButton(icon: "person.2", title: "Friends", action: { showingFriends = true })
+            ActionButton(
+                icon: "person.crop.circle.badge.plus",
+                title: "Friend Requests",
+                badgeText: pendingRequestsCount > 0 ? "\(pendingRequestsCount)" : nil,
+                action: { showingFriendRequests = true }
+            )
+            // Saved Posts and Liked Posts hidden until backend persistence lands (T1 follow-up).
             ActionButton(icon: "arrow.right.circle", title: "Sign Out", color: .red, action: signOut)
         }
     }
@@ -308,6 +345,7 @@ struct ActionButton: View {
     let icon: String
     let title: String
     var color: Color = .primary
+    var badgeText: String? = nil
     let action: () -> Void
     
     var body: some View {
@@ -319,6 +357,16 @@ struct ActionButton: View {
                 Text(title)
                     .foregroundColor(color)
                 Spacer()
+                if let badgeText {
+                    Text(badgeText)
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(Color.red)
+                        .clipShape(Capsule())
+                }
                 Image(systemName: "chevron.right")
                     .foregroundColor(.secondary)
                     .font(.caption)

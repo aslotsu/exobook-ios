@@ -13,6 +13,10 @@ struct UserProfileView: View {
     @Environment(\.currentUser) private var currentUser
     @State private var viewModel: UserProfileViewModel?
     @State private var selectedPost: Post?
+    @State private var relationshipState: RelationshipState = .none
+    @State private var isRelationshipLoading = false
+    @State private var isFriendActionLoading = false
+    @State private var friendActionError: String?
     
     var body: some View {
         ScrollView {
@@ -40,6 +44,10 @@ struct UserProfileView: View {
                 viewModel = UserProfileViewModel(userId: userId)
                 await viewModel?.loadUserData()
             }
+            await loadRelationship()
+        }
+        .task(id: currentUser?.id) {
+            await loadRelationship()
         }
         .sheet(item: $selectedPost) { post in
             PostDetailView(post: post)
@@ -86,6 +94,15 @@ struct UserProfileView: View {
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
             }
+
+            friendActionSection()
+
+            if let friendActionError {
+                Text(friendActionError)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+            }
             
             // Info Grid
             HStack(spacing: 32) {
@@ -120,6 +137,105 @@ struct UserProfileView: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func friendActionSection() -> some View {
+        if let currentUser, currentUser.id != userId {
+            if isRelationshipLoading {
+                ProgressView()
+                    .padding(.top, 4)
+            } else {
+                switch relationshipState {
+                case .none:
+                    Button("Add Friend") {
+                        Task { await sendFriendRequest(from: currentUser.id, to: userId) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isFriendActionLoading)
+                case .requestSent:
+                    Button("Requested") {
+                        Task { await cancelFriendRequest(from: currentUser.id, to: userId) }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isFriendActionLoading)
+                case .requestReceived:
+                    HStack(spacing: 8) {
+                        Button("Accept") {
+                            Task { await respondToFriendRequest(from: userId, to: currentUser.id, decision: .accepted) }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isFriendActionLoading)
+
+                        Button("Decline") {
+                            Task { await respondToFriendRequest(from: userId, to: currentUser.id, decision: .declined) }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isFriendActionLoading)
+                    }
+                case .friends:
+                    Label("Friends", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.green)
+                }
+            }
+        }
+    }
+
+    private func loadRelationship() async {
+        guard let currentUser, currentUser.id != userId else { return }
+        isRelationshipLoading = true
+        defer { isRelationshipLoading = false }
+
+        do {
+            let service = FriendsAPIService()
+            relationshipState = try await service.getRelationship(myId: currentUser.id, theirId: userId)
+        } catch {
+            relationshipState = .none
+            friendActionError = "Unable to load friend status."
+        }
+    }
+
+    private func sendFriendRequest(from fromId: String, to toId: String) async {
+        isFriendActionLoading = true
+        friendActionError = nil
+        defer { isFriendActionLoading = false }
+
+        do {
+            let service = FriendsAPIService()
+            _ = try await service.sendFriendRequest(fromId: fromId, toId: toId)
+            relationshipState = .requestSent
+        } catch {
+            friendActionError = "Failed to send request."
+        }
+    }
+
+    private func respondToFriendRequest(from fromId: String, to toId: String, decision: FriendRequestDecision) async {
+        isFriendActionLoading = true
+        friendActionError = nil
+        defer { isFriendActionLoading = false }
+
+        do {
+            let service = FriendsAPIService()
+            _ = try await service.respondToRequest(fromId: fromId, toId: toId, status: decision)
+            relationshipState = (decision == .accepted) ? .friends : .none
+        } catch {
+            friendActionError = "Failed to update request."
+        }
+    }
+
+    private func cancelFriendRequest(from fromId: String, to toId: String) async {
+        isFriendActionLoading = true
+        friendActionError = nil
+        defer { isFriendActionLoading = false }
+
+        do {
+            let service = FriendsAPIService()
+            _ = try await service.cancelFriendRequest(fromId: fromId, toId: toId)
+            relationshipState = .none
+        } catch {
+            friendActionError = "Failed to cancel request."
         }
     }
     
