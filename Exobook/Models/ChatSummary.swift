@@ -14,11 +14,17 @@ struct ChatSummary: Identifiable, Hashable {
     let title: String
     let avatarURL: URL?
     let lastMessage: String
-    let lastTimestamp: Date
+    let lastTimestamp: Date?
     let unreadCount: Int
     let members: [ChatMember]
     
-    init(chat: Chat, members: [ChatMember], currentUserId: String) {
+    init(
+        chat: Chat,
+        members: [ChatMember],
+        currentUserId: String,
+        lastMessageOverride: String? = nil,
+        lastTimestampOverride: Date? = nil
+    ) {
         self.id = chat.id  // Use chat ID as-is from backend
         self.members = members
         
@@ -32,8 +38,8 @@ struct ChatSummary: Identifiable, Hashable {
             self.avatarURL = nil
         }
         
-        self.lastMessage = chat.lastMessage ?? "No messages yet"
-        self.lastTimestamp = Date() // TODO: Get from last message timestamp
+        self.lastMessage = lastMessageOverride ?? chat.lastMessage ?? "No messages yet"
+        self.lastTimestamp = lastTimestampOverride ?? chat.lastMessageAt
         self.unreadCount = 0 // TODO: Implement unread tracking
     }
     

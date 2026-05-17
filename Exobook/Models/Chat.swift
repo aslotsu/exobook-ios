@@ -9,13 +9,61 @@ import Foundation
 
 // MARK: - Chat
 
-struct Chat: Codable {
+struct Chat: Decodable {
     let id: String
     let lastMessage: String?
+    let lastMessageAt: Date?
 
     enum CodingKeys: String, CodingKey {
-        case id = "id"
+        case id
         case lastMessage = "last_message"
+        case lastMessageAt = "last_message_at"
+        case lastMessageTimestamp = "last_message_timestamp"
+        case timestamp
+        case updatedAt = "updated_at"
+        case createdAt = "created_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        lastMessage = try container.decodeIfPresent(String.self, forKey: .lastMessage)
+
+        if let millis = try? container.decode(Int64.self, forKey: .lastMessageTimestamp) {
+            lastMessageAt = Self.dateFromEpoch(millis)
+        } else if let millis = try? container.decode(Int64.self, forKey: .timestamp) {
+            lastMessageAt = Self.dateFromEpoch(millis)
+        } else if let iso = try? container.decode(String.self, forKey: .lastMessageAt),
+                  let date = Self.dateFromISO8601(iso) {
+            lastMessageAt = date
+        } else if let iso = try? container.decode(String.self, forKey: .updatedAt),
+                  let date = Self.dateFromISO8601(iso) {
+            lastMessageAt = date
+        } else if let iso = try? container.decode(String.self, forKey: .createdAt),
+                  let date = Self.dateFromISO8601(iso) {
+            lastMessageAt = date
+        } else {
+            lastMessageAt = nil
+        }
+    }
+
+    private static func dateFromEpoch(_ epoch: Int64) -> Date {
+        // Accept either milliseconds or seconds.
+        if epoch > 10_000_000_000 {
+            return Date(timeIntervalSince1970: TimeInterval(epoch) / 1000.0)
+        }
+        return Date(timeIntervalSince1970: TimeInterval(epoch))
+    }
+
+    private static func dateFromISO8601(_ value: String) -> Date? {
+        let iso = ISO8601DateFormatter()
+        if let date = iso.date(from: value) { return date }
+
+        let fallback = DateFormatter()
+        fallback.locale = Locale(identifier: "en_US_POSIX")
+        fallback.timeZone = TimeZone(secondsFromGMT: 0)
+        fallback.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+        return fallback.date(from: value)
     }
 }
 
@@ -28,20 +76,7 @@ struct ChatMember: Codable, Identifiable, Hashable {
     var id: String { userId }
 
     var avatarURL: URL? {
-        guard let pic = userPic else { return nil }
-        
-        // If userPic is an SVG file, return nil to trigger CloudFront fallback
-        if pic.lowercased().hasSuffix(".svg") {
-            return nil
-        }
-        
-        if pic.starts(with: "http") {
-            return URL(string: pic)
-        }
-        if pic.starts(with: "/") {
-            return URL(string: "https://exobook.ca\(pic)")
-        }
-        return URL(string: "https://exobook.amazonaws.com/\(pic)")
+        resolveAvatarURL(userPic)
     }
 
     // API uses "userid" not "user_id" (lowercase, not snake_case)
@@ -98,6 +133,3 @@ struct ChatMessage: Codable, Identifiable {
         case createdAt = "created_at"
     }
 }
-
-
-

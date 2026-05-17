@@ -352,8 +352,7 @@ private struct MessageBubble: View {
                 if let images = message.images, !images.isEmpty {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 4)], spacing: 4) {
                         ForEach(images, id: \.self) { imageId in
-                            let urlString = imageId.hasPrefix("http") ? imageId : "https://exobook.s3.amazonaws.com/\(imageId)"
-                            WebImage(url: URL(string: urlString))
+                            WebImage(url: resolveMediaURL(imageId))
                                 .resizable()
                                 .indicator(.activity)
                                 .scaledToFill()
@@ -367,8 +366,7 @@ private struct MessageBubble: View {
                 // Files
                 if let files = message.files, !files.isEmpty {
                     ForEach(files, id: \.self) { fileId in
-                        let urlString = fileId.hasPrefix("http") ? fileId : "https://exobook.s3.amazonaws.com/\(fileId)"
-                         Link(destination: URL(string: urlString) ?? URL(string: "https://exobook.ca")!) {
+                         Link(destination: resolveMediaURL(fileId) ?? URL(string: "https://exobook.ca")!) {
                             HStack {
                                 Image(systemName: "doc.fill")
                                 Text("Attachment")

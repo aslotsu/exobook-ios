@@ -13,6 +13,7 @@ struct NewChatView: View {
     @State private var searchText = ""
     @State private var searchResults: [SearchHit] = []
     @State private var isSearching = false
+    @State private var searchTask: Task<Void, Never>?
     @State private var navigateToChatId: String?
     @State private var chatSummary: ChatSummary?
     
@@ -116,16 +117,29 @@ struct NewChatView: View {
     }
     
     private func performSearch() {
-        guard !searchText.isEmpty else {
+        searchTask?.cancel()
+
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
             searchResults = []
+            isSearching = false
             return
         }
-        
+
+        guard trimmed.count >= 2 else {
+            searchResults = []
+            isSearching = false
+            return
+        }
+
         isSearching = true
-        
-        Task {
+
+        searchTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+
             do {
-                let response = try await searchService.search(query: searchText)
+                let response = try await searchService.search(query: trimmed)
                 await MainActor.run {
                     searchResults = response.hits
                     isSearching = false
@@ -186,16 +200,34 @@ struct NewChatView: View {
     }
     
     private func checkChatExists(user1: String, user2: String) async throws -> Bool {
-        struct Response: Codable {
+        struct Response: Decodable {
             let success: Bool
             let data: CheckData
         }
-        struct CheckData: Codable {
+        struct CheckData: Decodable {
             let hasDirectChat: Bool
             let user1Id: String?
             let user2Id: String?
-            
-           
+
+            enum CodingKeys: String, CodingKey {
+                case hasDirectChat
+                case hasDirectChatSnake = "has_direct_chat"
+                case user1Id
+                case user1IdSnake = "user1_id"
+                case user2Id
+                case user2IdSnake = "user2_id"
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                hasDirectChat = (try? container.decode(Bool.self, forKey: .hasDirectChat))
+                    ?? (try? container.decode(Bool.self, forKey: .hasDirectChatSnake))
+                    ?? false
+                user1Id = (try? container.decode(String.self, forKey: .user1Id))
+                    ?? (try? container.decode(String.self, forKey: .user1IdSnake))
+                user2Id = (try? container.decode(String.self, forKey: .user2Id))
+                    ?? (try? container.decode(String.self, forKey: .user2IdSnake))
+            }
         }
         
         let url = "\(APIConfig.chatAPI)/check-chat?user1=\(user1)&user2=\(user2)"
@@ -204,12 +236,26 @@ struct NewChatView: View {
     }
     
     private func findExistingChat(user1: String, user2: String) async throws -> String? {
-        struct Response: Codable {
+        struct Response: Decodable {
             let data: ChatData
         }
-        struct ChatData: Codable {
+        struct ChatData: Decodable {
             let chatId: String
             let found: Bool
+
+            enum CodingKeys: String, CodingKey {
+                case chatId
+                case chatIdSnake = "chat_id"
+                case found
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                chatId = (try? container.decode(String.self, forKey: .chatId))
+                    ?? (try? container.decode(String.self, forKey: .chatIdSnake))
+                    ?? ""
+                found = (try? container.decode(Bool.self, forKey: .found)) ?? !chatId.isEmpty
+            }
         }
         
         let url = "\(APIConfig.chatAPI)/find-chat?user1=\(user1)&user2=\(user2)"
@@ -287,12 +333,12 @@ struct NewChatView: View {
             ]
         )
         
-        struct CreateChatResponse: Codable {
+        struct CreateChatResponse: Decodable {
             let success: Bool
             let data: CreateChatData
             let message: String?
         }
-        struct CreateChatData: Codable {
+        struct CreateChatData: Decodable {
             let chat: Chat
             let members: [ChatMember]
         }

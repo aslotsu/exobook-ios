@@ -37,7 +37,27 @@ final class ExobookChatService: ChatService {
                     print("📥 Fetching members for chat: \(chat.id)")
                     let members = try await chatAPI.getChatMembers(chatId: chat.id)
                     print("✅ Got \(members.count) members")
-                    let summary = ChatSummary(chat: chat, members: members, currentUserId: currentUserId)
+
+                    var lastMessageOverride: String?
+                    var lastTimestampOverride: Date?
+
+                    // Fallback when chat list payload does not include last-message timestamp/message.
+                    if chat.lastMessageAt == nil || (chat.lastMessage?.isEmpty ?? true) {
+                        if let latest = try? await chatAPI.getLatestMessage(chatId: chat.id) {
+                            lastTimestampOverride = latest.date
+                            if chat.lastMessage == nil || chat.lastMessage?.isEmpty == true {
+                                lastMessageOverride = latest.words
+                            }
+                        }
+                    }
+
+                    let summary = ChatSummary(
+                        chat: chat,
+                        members: members,
+                        currentUserId: currentUserId,
+                        lastMessageOverride: lastMessageOverride,
+                        lastTimestampOverride: lastTimestampOverride
+                    )
                     summaries.append(summary)
                 } catch {
                     print("❌ Failed to get members for chat \(chat.id): \(error)")
@@ -45,7 +65,11 @@ final class ExobookChatService: ChatService {
                     continue
                 }
             }
-            
+
+            summaries.sort { (lhs, rhs) in
+                (lhs.lastTimestamp ?? .distantPast) > (rhs.lastTimestamp ?? .distantPast)
+            }
+
             print("✅ Returning \(summaries.count) chat summaries")
             return summaries
         } catch {
@@ -122,11 +146,11 @@ final class ExobookChatService: ChatService {
 
 // MARK: - API Response Types
 
-struct ChatResponse: Codable {
+struct ChatResponse: Decodable {
     let data: Chat
 }
 
-struct ChatsResponse: Codable {
+struct ChatsResponse: Decodable {
     let success: Bool
     let data: [Chat]?
     
@@ -135,7 +159,7 @@ struct ChatsResponse: Codable {
     }
 }
 
-struct MessagesResponse: Codable {
+struct MessagesResponse: Decodable {
     let success: Bool
     let data: [ChatMessage]
     let page: Int?
@@ -145,7 +169,7 @@ struct MessagesResponse: Codable {
     // No CodingKeys needed - NetworkService.convertFromSnakeCase handles has_more -> hasMore automatically
 }
 
-struct MessageResponse: Codable {
+struct MessageResponse: Decodable {
     let success: Bool
     let data: ChatMessage?
 }
@@ -181,6 +205,11 @@ class ChatAPIService {
             print("❌ Error fetching messages: \(error)")
             throw error
         }
+    }
+
+    func getLatestMessage(chatId: String) async throws -> ChatMessage? {
+        let messages = try await getMessages(chatId: chatId)
+        return messages.max(by: { $0.timestamp < $1.timestamp })
     }
     
     func sendMessage(chatId: String, userId: String, text: String, images: [String], files: [String]) async throws {
@@ -226,7 +255,7 @@ class ChatAPIService {
     }
     
     func getChatMembers(chatId: String) async throws -> [ChatMember] {
-        struct MembersResponse: Codable {
+        struct MembersResponse: Decodable {
             let success: Bool
             let data: MembersList
         }
@@ -243,10 +272,10 @@ class ChatAPIService {
     }
     
     func getChatWithMembers(chatId: String) async throws -> (Chat, [ChatMember]) {
-        struct Response: Codable {
+        struct Response: Decodable {
             let data: ChatWithMembersData
         }
-        struct ChatWithMembersData: Codable {
+        struct ChatWithMembersData: Decodable {
             let chat: Chat
             let members: [ChatMember]
         }

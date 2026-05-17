@@ -106,9 +106,11 @@ struct ChatRow: View {
                 HStack {
                     Text(chat.title).font(.headline)
                     Spacer()
-                    Text(chat.lastTimestamp, format: .dateTime.hour().minute())
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if let lastTimestamp = chat.lastTimestamp {
+                        Text(lastTimestamp, format: .dateTime.hour().minute())
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 HStack(alignment: .firstTextBaseline) {
                     Text(chat.lastMessage)
