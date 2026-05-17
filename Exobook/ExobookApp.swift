@@ -21,6 +21,12 @@ struct ExobookApp: App {
         FirebaseApp.configure()
         print("✅ Firebase initialized")
 
+        // Attach the Supabase access token to outgoing API requests so auth-gated
+        // backends (chat first; others as they enforce JWT) keep working.
+        NetworkService.shared.authTokenProvider = {
+            try? await supabase.auth.session.accessToken
+        }
+
         // Configure notification categories
         Task {
             await NotificationManager.shared.setupNotificationCategories()

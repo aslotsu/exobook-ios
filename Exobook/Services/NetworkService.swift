@@ -26,7 +26,11 @@ class NetworkService {
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
-    
+
+    /// Optional async provider that returns a Bearer token to attach to outgoing requests.
+    /// Set this from app startup; return nil to skip the header for a given call.
+    var authTokenProvider: (() async -> String?)?
+
     private init() {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 30
@@ -83,6 +87,15 @@ class NetworkService {
         headers: [String: String]? = nil
     ) async throws -> T {
         try await request(endpoint, method: "DELETE", headers: headers)
+
+    }
+
+    func delete<T: Decodable, Body: Encodable>(
+        _ endpoint: String,
+        body: Body,
+        headers: [String: String]? = nil
+    ) async throws -> T {
+        try await request(endpoint, method: "DELETE", body: body, headers: headers)
     }
     
     func upload<T: Decodable>(
@@ -100,11 +113,15 @@ class NetworkService {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.httpBody = data
-        
+
         headers?.forEach { key, value in
             request.setValue(value, forHTTPHeaderField: key)
         }
-        
+
+        if let provider = authTokenProvider, let token = await provider() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
         Log.api.debug("UPLOAD \(endpoint, privacy: .public) (\(data.count, privacy: .public) bytes)")
 
         let (responseData, response) = try await session.data(for: request)
@@ -149,8 +166,8 @@ class NetworkService {
         var request = URLRequest(url: url)
         request.httpMethod = method
         
-        // Only set Content-Type for methods that have bodies
-        if method != "GET" && method != "DELETE" {
+        // Only GET is guaranteed to never have a body.
+        if method != "GET" {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -159,9 +176,13 @@ class NetworkService {
         headers?.forEach { key, value in
             request.setValue(value, forHTTPHeaderField: key)
         }
-        
-        // Add body if present and NOT a GET/DELETE request
-        if let body = body as? (any Encodable), method != "GET", method != "DELETE", !(body is EmptyBody) {
+
+        if let provider = authTokenProvider, let token = await provider() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        // Add body if present and not a GET request.
+        if let body = body as? (any Encodable), method != "GET", !(body is EmptyBody) {
             do {
                 request.httpBody = try encoder.encode(body)
             } catch {
