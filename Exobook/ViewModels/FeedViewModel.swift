@@ -209,6 +209,7 @@ class FeedViewModel {
     func createPost(user: User, title: String, content: String, subject: String?, images: [Data] = []) async throws {
         // Default to General - Campus if no subject selected
         let finalSubject = subject ?? "General - \(userCampus)"
+        let bridgedContent = content.bridgedComposerHTML
         
         // 1. Create Post
         let request = CreatePostRequest(
@@ -220,7 +221,7 @@ class FeedViewModel {
             userYear: user.year ?? 0,
             userCampus: user.campus ?? "",
             title: title,
-            content: content,
+            content: bridgedContent,
             subject: finalSubject,
             tags: nil,
             images: []
