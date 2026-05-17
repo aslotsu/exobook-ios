@@ -18,6 +18,10 @@ final class RealtimeManager {
     // Subjects
     let newPostSubject = PassthroughSubject<Post, Never>()
 
+    /// Fires once per `new-notification` Pusher event from `user-{userId}-notifications`.
+    /// Consumers (e.g. MainTabs bell badge) re-fetch unread count when this fires.
+    let newNotificationSubject = PassthroughSubject<Void, Never>()
+
     // Helpers
     private let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
@@ -36,6 +40,7 @@ final class RealtimeManager {
     private var commentsChannel: PusherChannel?
     private var likesChannel: PusherChannel?
     private var repliesChannel: PusherChannel?
+    private var userNotifChannel: PusherChannel?
 
     // Per-chat channels and message publishers, keyed by chatId.
     // Chat subscriptions are demand-loaded from ExobookChatService rather than
@@ -72,8 +77,10 @@ final class RealtimeManager {
         commentsChannel = pusher.subscribe("reply")
         likesChannel = pusher.subscribe("LIKES")
         repliesChannel = pusher.subscribe("REPLIES")
+        userNotifChannel = pusher.subscribe("user-\(userId)-notifications")
 
         setupEventHandlers()
+        setupUserNotifHandler(userId: userId)
         pusher.connect()
 
         print("🔴 Pusher configured for user: \(userId)")
@@ -332,6 +339,45 @@ final class RealtimeManager {
         
         print("✅ Pusher event handlers configured successfully")
         print("🎯 Listening on channels: LIKES, posts, reply, REPLIES")
+    }
+
+    private func setupUserNotifHandler(userId: String) {
+        userNotifChannel?.bind(eventName: "new-notification") { [weak self] event in
+            guard let self = self,
+                  let eventData = event.data,
+                  let jsonData = eventData.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+                print("❌ Failed to parse new-notification event")
+                return
+            }
+
+            Task { @MainActor in
+                self.handleNewNotificationEvent(json, userId: userId)
+            }
+        }
+        print("🎯 Listening on channel: user-\(userId)-notifications")
+    }
+
+    private func handleNewNotificationEvent(_ data: [String: Any], userId: String) {
+        let username = data["username"] as? String ?? "Someone"
+        let actionRaw = data["action"] as? Int ?? 0
+        let excerpt = data["excerpt"] as? String ?? ""
+        let resourceId = data["resource_id"] as? String ?? ""
+
+        let (title, type): (String, NotificationType) = {
+            switch actionRaw {
+            case 1: return ("👍 \(username) liked your post", .postLike)
+            case 2: return ("❤️ \(username) liked your comment", .commentLike)
+            case 3: return ("💬 \(username) commented on your post", .postComment)
+            case 4: return ("↩️ \(username) replied to your comment", .commentReply)
+            default: return ("🔔 \(username) interacted with your content", .announcement)
+            }
+        }()
+
+        let body = excerpt.isEmpty ? "Open Exobook to see more" : "\"\(String(excerpt.prefix(60)))\""
+
+        showNotification(title: title, body: body, type: type, resourceId: resourceId)
+        newNotificationSubject.send(())
     }
     
     // MARK: - Event Handlers
@@ -750,11 +796,15 @@ final class RealtimeManager {
         commentsChannel?.unbindAll()
         likesChannel?.unbindAll()
         repliesChannel?.unbindAll()
+        userNotifChannel?.unbindAll()
 
         pusher?.unsubscribe("posts")
         pusher?.unsubscribe("reply")
         pusher?.unsubscribe("LIKES")
         pusher?.unsubscribe("REPLIES")
+        if let userId = currentUserId {
+            pusher?.unsubscribe("user-\(userId)-notifications")
+        }
 
         for (chatId, channel) in chatChannels {
             channel.unbindAll()

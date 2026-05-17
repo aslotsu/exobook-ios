@@ -283,6 +283,50 @@ final class StatsCacheManager {
         print("💾 Cached notification: \(title)")
     }
 
+    /// Merge a server-fetched notification list into the local cache.
+    /// - Server is the source of truth for "exists" and the latest content.
+    /// - Local is the source of truth for `isRead` / `isOpened` once they are true:
+    ///   we only flip them on; we never flip them off based on server state.
+    func mergeServerNotifications(_ notifs: [ServerNotification], userId: String) {
+        let descriptor = FetchDescriptor<CachedNotification>(
+            predicate: #Predicate { $0.userId == userId }
+        )
+        let existing = (try? modelContext.fetch(descriptor)) ?? []
+        let existingById = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+
+        for notif in notifs {
+            if let local = existingById[notif.id] {
+                local.title = notif.displayTitle
+                local.message = notif.excerpt
+                local.timestamp = notif.createdAt
+                local.resourceId = notif.resourceId
+                local.actionUserId = notif.userId
+                local.actionUserName = notif.username
+                local.actionUserPicture = notif.userPic
+                local.actionKey = notif.actionKey
+                if notif.readStatus { local.isRead = true }
+            } else {
+                let cached = CachedNotification(
+                    id: notif.id,
+                    type: notif.notificationType.rawValue,
+                    title: notif.displayTitle,
+                    message: notif.excerpt,
+                    timestamp: notif.createdAt,
+                    resourceId: notif.resourceId,
+                    userId: userId,
+                    isRead: notif.readStatus,
+                    isOpened: false,
+                    actionUserId: notif.userId,
+                    actionUserName: notif.username,
+                    actionUserPicture: notif.userPic,
+                    actionKey: notif.actionKey
+                )
+                modelContext.insert(cached)
+            }
+        }
+        saveContext()
+    }
+
     // MARK: - Notification Status Management
 
     func markAllNotificationsAsRead(forUserId userId: String? = nil) {
@@ -321,6 +365,21 @@ final class StatsCacheManager {
             }
         } catch {
             print("❌ Failed to mark notification as read: \(error)")
+        }
+    }
+
+    func deleteNotification(id: String) {
+        let predicate = #Predicate<CachedNotification> { $0.id == id }
+        let descriptor = FetchDescriptor<CachedNotification>(predicate: predicate)
+
+        do {
+            if let notification = try modelContext.fetch(descriptor).first {
+                modelContext.delete(notification)
+                saveContext()
+                print("🗑️ Deleted notification: \(id)")
+            }
+        } catch {
+            print("❌ Failed to delete notification: \(error)")
         }
     }
 

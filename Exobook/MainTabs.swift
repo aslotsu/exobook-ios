@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 
 enum ExoTab: Int, CaseIterable {
     case feed, explore, notifications, chats, profile
@@ -31,6 +32,11 @@ struct MainTabs: View {
     // Real-time events
     @State private var hasConfiguredRealtime = false
 
+    // Notifications bell badge
+    @State private var unreadNotifCount: Int = 0
+    @State private var notifSubscription: AnyCancellable?
+    private let notifAPI = NotificationsAPIService()
+
     var body: some View {
         TabView(selection: $selection) {
             NavigationStack(path: $feedPath) {
@@ -54,6 +60,7 @@ struct MainTabs: View {
             NotificationsView()
                 .embedInNav(title: "Notifications", path: $notificationsPath)
                 .tabItem { Label("Notifications", systemImage: "bell") }
+                .badge(unreadNotifCount)
                 .tag(ExoTab.notifications)
 
             ChatsView()
@@ -86,8 +93,17 @@ struct MainTabs: View {
         .onChange(of: navigationManager.selectedTab) { oldValue, newValue in
             selection = newValue
         }
+        .onChange(of: selection) { _, newTab in
+            if newTab == .notifications {
+                Task { await refreshUnreadCount() }
+            }
+        }
         .onAppear {
             configureRealtimeIfNeeded()
+        }
+        .task(id: currentUser?.id) {
+            await refreshUnreadCount()
+            subscribeToNotificationEvents()
         }
         .overlay {
             if isLoadingPost {
@@ -176,6 +192,29 @@ struct MainTabs: View {
 
             isLoadingPost = false
         }
+    }
+
+    // MARK: - Notifications bell badge
+
+    private func refreshUnreadCount() async {
+        guard let userId = currentUser?.id else {
+            unreadNotifCount = 0
+            return
+        }
+        if let count = try? await notifAPI.fetchUnreadCount(userId: userId) {
+            unreadNotifCount = count
+        }
+    }
+
+    private func subscribeToNotificationEvents() {
+        guard notifSubscription == nil else { return }
+        notifSubscription = RealtimeManager.shared.newNotificationSubject
+            .receive(on: DispatchQueue.main)
+            .sink { _ in
+                Task { @MainActor in
+                    await refreshUnreadCount()
+                }
+            }
     }
 
     // MARK: - Real-time Configuration

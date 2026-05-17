@@ -26,7 +26,11 @@ final class CachedNotification {
     var actionUserId: String?
     var actionUserName: String?
     var actionUserPicture: String?
-    
+
+    /// DynamoDB sort key for the notif row. Required for server mark-read / delete.
+    /// Nil for FCM-only entries that haven't been merged with a server fetch yet.
+    var actionKey: String?
+
     init(
         id: String = UUID().uuidString,
         type: String, // Store raw string from NotificationType
@@ -39,7 +43,8 @@ final class CachedNotification {
         isOpened: Bool = false,
         actionUserId: String? = nil,
         actionUserName: String? = nil,
-        actionUserPicture: String? = nil
+        actionUserPicture: String? = nil,
+        actionKey: String? = nil
     ) {
         self.id = id
         self.typeRawValue = type
@@ -53,5 +58,6 @@ final class CachedNotification {
         self.actionUserId = actionUserId
         self.actionUserName = actionUserName
         self.actionUserPicture = actionUserPicture
+        self.actionKey = actionKey
     }
 }

@@ -11,14 +11,19 @@ import SwiftData
 
 struct NotificationsView: View {
     @Environment(\.currentUser) private var currentUser
-    
+
     // Sort by timestamp descending to show newest first
     @Query(sort: \CachedNotification.timestamp, order: .reverse) private var notifications: [CachedNotification]
     @State private var navigationManager = NotificationNavigationManager.shared
-    
+    @State private var isLoadingFromServer = false
+    private let notifAPI = NotificationsAPIService()
+
     var body: some View {
         Group {
-            if notifications.isEmpty {
+            if notifications.isEmpty && isLoadingFromServer {
+                ProgressView("Loading notifications…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if notifications.isEmpty {
                 emptyState
             } else {
                 notificationsList
@@ -37,27 +42,74 @@ struct NotificationsView: View {
                 }
             }
         }
+        .task {
+            await loadFromServer(showSpinner: true)
+        }
+        .refreshable {
+            await loadFromServer(showSpinner: false)
+        }
+    }
+
+    private func loadFromServer(showSpinner: Bool) async {
+        guard let userId = currentUser?.id else { return }
+        if showSpinner { isLoadingFromServer = true }
+        do {
+            let serverNotifs = try await notifAPI.fetchNotifications(userId: userId)
+            StatsCacheManager.shared.mergeServerNotifications(serverNotifs, userId: userId)
+        } catch {
+            print("❌ Failed to fetch notifications from server: \(error)")
+        }
+        if showSpinner { isLoadingFromServer = false }
     }
     
     // MARK: - Actions
-    
+
     private func markAllAsRead() {
-        if let userId = currentUser?.id {
-            // StatsCacheManager.shared.markAllNotificationsAsRead(forUserId: userId)
-             // Or iterate if helper not available yet, but we added it
-             StatsCacheManager.shared.markAllNotificationsAsRead(forUserId: userId)
+        guard let userId = currentUser?.id else { return }
+        let unreadKeys = notifications
+            .filter { !$0.isRead }
+            .compactMap { $0.actionKey }
+        StatsCacheManager.shared.markAllNotificationsAsRead(forUserId: userId)
+        guard !unreadKeys.isEmpty else { return }
+        Task { [unreadKeys] in
+            try? await notifAPI.batchMarkAsRead(userId: userId, actionKeys: unreadKeys)
         }
     }
-    
+
+    private func markRead(_ notification: CachedNotification) {
+        StatsCacheManager.shared.markNotificationAsRead(id: notification.id)
+        syncReadToServer(notification)
+    }
+
+    private func deleteNotification(_ notification: CachedNotification) {
+        let owner = notification.userId
+        let actionKey = notification.actionKey
+        StatsCacheManager.shared.deleteNotification(id: notification.id)
+        guard let owner, let actionKey else { return }
+        Task {
+            try? await notifAPI.deleteNotification(owner: owner, actionKey: actionKey)
+        }
+    }
+
+    private func syncReadToServer(_ notification: CachedNotification) {
+        guard let owner = notification.userId,
+              let actor = notification.actionUserId,
+              let actionKey = notification.actionKey else { return }
+        Task {
+            try? await notifAPI.markAsRead(owner: owner, userId: actor, actionKey: actionKey)
+        }
+    }
+
     private func handleNotificationTap(_ notification: CachedNotification) {
-        // Mark as opened
+        // Mark as opened (also sets isRead=true locally)
         StatsCacheManager.shared.markNotificationAsOpened(id: notification.id)
-        
+        syncReadToServer(notification)
+
         // Handle navigation
         guard let type = NotificationType(rawValue: notification.typeRawValue) else { return }
-        
+
         print("🔔 Tapped notification: \(type), Resource: \(notification.resourceId)")
-        
+
         switch type {
         case .postLike, .postComment, .commentLike, .commentReply:
             navigationManager.navigateToPost(postId: notification.resourceId)
@@ -104,13 +156,12 @@ struct NotificationsView: View {
                 .swipeActions(edge: .trailing) {
                     if !notification.isRead {
                         Button("Read") {
-                            StatsCacheManager.shared.markNotificationAsRead(id: notification.id)
+                            markRead(notification)
                         }
                         .tint(.blue)
                     }
                     Button("Delete", role: .destructive) {
-                         // Add delete support if needed, requires context access
-                         // For now just hide or implementation detail
+                        deleteNotification(notification)
                     }
                 }
             }
