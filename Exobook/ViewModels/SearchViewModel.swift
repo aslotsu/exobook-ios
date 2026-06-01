@@ -10,7 +10,7 @@ import Combine
 
 @MainActor
 class SearchViewModel: ObservableObject {
-    private let exobookAPI = ExobookAPIService()
+    private let linkioAPI = LinkioAPIService()
     private let realtimeManager = RealtimeManager.shared
     
     // State
@@ -81,7 +81,7 @@ class SearchViewModel: ObservableObject {
         do {
             // Use Typesense search API (search both collections)
             print("[Search] 📡 Calling searchAll API...")
-            let response = try await exobookAPI.searchAll(query: query, perPage: 20)
+            let response = try await linkioAPI.searchAll(query: query, perPage: 20)
             
             // Extract documents from hits
             if let posts = response.posts {
@@ -174,8 +174,8 @@ class SearchViewModel: ObservableObject {
         let postIds = posts.map { $0.id }
         
         do {
-            async let likeCounts = exobookAPI.getBatchLikeCounts(userId: userId, postIds: postIds)
-            async let commentCounts = exobookAPI.getBatchCommentCounts(userId: userId, postIds: postIds)
+            async let likeCounts = linkioAPI.getBatchLikeCounts(userId: userId, postIds: postIds)
+            async let commentCounts = linkioAPI.getBatchCommentCounts(userId: userId, postIds: postIds)
             
             let (likes, comments) = try await (likeCounts, commentCounts)
             

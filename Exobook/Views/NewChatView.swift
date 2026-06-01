@@ -168,16 +168,11 @@ struct NewChatView: View {
             
             let chatId: String
             
-            if chatExists {
-                // Step 2a: Find existing chat ID
-                if let existingChatId = try await findExistingChat(user1: currentUser.id, user2: otherUserId) {
-                    print("✅ Found existing chat: \(existingChatId)")
-                    chatId = existingChatId
-                } else {
-                    throw NSError(domain: "Chat", code: -1, userInfo: [NSLocalizedDescriptionKey: "Chat exists but ID not found"])
-                }
+            if chatExists, let existingChatId = try await findExistingChat(user1: currentUser.id, user2: otherUserId) {
+                print("✅ Found existing chat: \(existingChatId)")
+                chatId = existingChatId
             } else {
-                // Step 2b: Create new chat
+                // No chat found (or backend inconsistency where check-chat says yes but find-chat returns empty)
                 chatId = try await createNewChat(
                     currentUser: currentUser,
                     otherUser: document

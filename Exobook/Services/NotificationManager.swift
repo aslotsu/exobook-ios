@@ -19,6 +19,9 @@ class NotificationManager: NSObject, ObservableObject {
     @Published var badgeCount: Int = 0
 
     private let notificationCenter = UNUserNotificationCenter.current()
+    private var currentFCMUserId: String?
+    private var hasAPNSToken = false
+    private var isFetchingFCMToken = false
 
     // Navigation handler - will be set by app
     var onNotificationTap: ((NotificationType, String) -> Void)?
@@ -154,14 +157,50 @@ class NotificationManager: NSObject, ObservableObject {
 
     func setupFCM(userId: String) {
         Messaging.messaging().delegate = self
+        currentFCMUserId = userId
 
-        // Get FCM token
+        guard hasAPNSToken else {
+            Task {
+                await registerForRemoteNotifications()
+            }
+            print("ℹ️ Waiting for APNS token before fetching FCM token.")
+            return
+        }
+
+        fetchAndRegisterFCMToken(userId: userId)
+    }
+
+    func remoteNotificationsRegistered() {
+        hasAPNSToken = true
+
+        guard let userId = currentFCMUserId else {
+            print("✅ APNS token received; FCM registration will run after user loads.")
+            return
+        }
+
+        fetchAndRegisterFCMToken(userId: userId)
+    }
+
+    private func fetchAndRegisterFCMToken(userId: String) {
+        guard !isFetchingFCMToken else { return }
+        isFetchingFCMToken = true
+
         Messaging.messaging().token { token, error in
-            if let error = error {
-                print("❌ Error fetching FCM token: \(error)")
-            } else if let token = token {
+            Task { @MainActor in
+                self.isFetchingFCMToken = false
+
+                if let error = error {
+                    print("❌ Error fetching FCM token: \(error)")
+                    return
+                }
+
+                guard let token else {
+                    print("⚠️ FCM token fetch returned nil.")
+                    return
+                }
+
                 print("✅ FCM token received: \(token)")
-                Task { @MainActor in
+                if self.currentFCMUserId == userId {
                     await self.registerFCMToken(userId: userId, token: token)
                 }
             }
@@ -176,7 +215,7 @@ class NotificationManager: NSObject, ObservableObject {
         ]
 
         do {
-            let api = ExobookAPIService()
+            let api = LinkioAPIService()
             let response = try await api.registerDeviceToken(
                 userId: userId,
                 token: token,

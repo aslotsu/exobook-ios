@@ -28,15 +28,19 @@ final class NotificationsAPIService {
 
     // MARK: - Writes
 
-    func markAsRead(owner: String, userId: String, actionKey: String) async throws {
-        let request = MarkReadRequest(owner: owner, userId: userId, actionKey: actionKey)
-        let _: StatusEnvelope = try await network.patch("\(baseURL)/api/notifs/read", body: request)
+    func markAsRead(notificationId: String, userId: String) async throws {
+        let request = MarkReadByIdRequest(notificationIds: [notificationId])
+        let _: StatusEnvelope = try await network.patch(
+            "\(baseURL)/api/notifs/read-by-id/\(userId)",
+            body: request
+        )
     }
 
-    func batchMarkAsRead(userId: String, actionKeys: [String]) async throws {
-        let request = BatchReadRequest(createdAtList: actionKeys)
+    func batchMarkAsRead(userId: String, notificationIds: [String]) async throws {
+        guard !notificationIds.isEmpty else { return }
+        let request = MarkReadByIdRequest(notificationIds: notificationIds)
         let _: StatusEnvelope = try await network.patch(
-            "\(baseURL)/api/notifs/batch-read/\(userId)",
+            "\(baseURL)/api/notifs/read-by-id/\(userId)",
             body: request
         )
     }
@@ -124,22 +128,10 @@ private struct UnreadCountResponse: Decodable {
     }
 }
 
-private struct MarkReadRequest: Encodable {
-    let owner: String
-    let userId: String
-    let actionKey: String
+private struct MarkReadByIdRequest: Encodable {
+    let notificationIds: [String]
 
     enum CodingKeys: String, CodingKey {
-        case owner
-        case userId = "userid"
-        case actionKey = "action_key"
-    }
-}
-
-private struct BatchReadRequest: Encodable {
-    let createdAtList: [String]
-
-    enum CodingKeys: String, CodingKey {
-        case createdAtList = "created_at_list"
+        case notificationIds = "notification_ids"
     }
 }

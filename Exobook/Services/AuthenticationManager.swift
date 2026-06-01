@@ -2,383 +2,338 @@
 //  AuthenticationManager.swift
 //  Exobook
 //
-//  Created by Alfred Lotsu on 24/10/2025.
-//
 
 import Foundation
 import Supabase
 import SwiftUI
+import FirebaseMessaging
 
 @MainActor
 @Observable
-class AuthenticationManager {
+final class AuthenticationManager {
     static let shared = AuthenticationManager()
 
-    private let supabaseClient: SupabaseClient
-    private let exobookAPI = ExobookAPIService()
+    // MARK: - Auth State (single source of truth)
 
-    // Auth state
-    var currentUser: User?
-    var isAuthenticated: Bool { currentUser != nil }
-    var isLoading = false
+    enum AuthState { case bootstrapping, signedOut, authenticated(User) }
+
+    private(set) var authState: AuthState = .bootstrapping
+
+    var isAuthenticated: Bool {
+        if case .authenticated = authState { return true }
+        return false
+    }
+
+    var currentUser: User? {
+        if case .authenticated(let user) = authState { return user }
+        return nil
+    }
+
+    // The Supabase session — read by authTokenProvider without any async/throws.
+    private(set) var currentSession: Session?
+
+    var sessionAccessToken: String? { currentSession?.accessToken }
+
+    // UI feedback
     var error: String?
+    var authNotice: String?
+    var isPasswordRecoveryFlow = false
 
-    // Track if user has ever logged in before
     var hasLoggedInBefore: Bool {
         get { UserDefaults.standard.bool(forKey: "hasLoggedInBefore") }
         set { UserDefaults.standard.set(newValue, forKey: "hasLoggedInBefore") }
     }
-    
-    // Prevent re-entrant calls to loadUserData
-    private var isLoadingUserData = false
 
-    // Session
-    private var session: Session? {
-        didSet {
-            // Avoid cycles by checking if session actually changed
-            guard oldValue?.user.id != session?.user.id else { return }
-            
-            Task {
-                if let session = session {
-                    hasLoggedInBefore = true // Mark that user has logged in
-                    await loadUserData(userId: session.user.id.uuidString)
-                } else if oldValue != nil {
-                    // Only clear user if session was previously set
-                    currentUser = nil
-                }
-            }
-        }
-    }
+    // MARK: - Private
+
+    private let supabaseClient: SupabaseClient = supabase
+    private let linkioAPI = LinkioAPIService()
+    private var isLoadingUserData = false
+    private var listenerTask: Task<Void, Never>?
 
     private init() {
-        self.supabaseClient = supabase
-        Task {
-            await checkSession()
-        }
+        Task { await bootstrap() }
     }
-    
-    // MARK: - Session Management
-    
-    func checkSession() async {
-        print("🔐 === Starting Session Check ===")
-        isLoading = true
-        
-        do {
-            // Set up auth state listener FIRST to catch any events
-            Task {
-                print("👂 Setting up auth state listener...")
-                for await (event, session) in await supabaseClient.auth.authStateChanges {
-                    print("🔔 Auth state changed: \(event)")
-                    await handleAuthStateChange(event: event, session: session)
-                }
-            }
-            
-            // Small delay to ensure listener is ready
-            try? await Task.sleep(for: .milliseconds(100))
-            
-            // Now check for existing session
-            print("🔍 Checking for existing session...")
-            session = try await supabaseClient.auth.session
-            
-            // If we have a session, wait for user data to load with timeout
-            if session != nil {
-                print("✅ Session found, waiting for user data...")
-                
-                // Wait for user data with a timeout (5 seconds max)
-                var attempts = 0
-                let maxAttempts = 50 // 5 seconds total (50 * 100ms)
-                
-                while currentUser == nil && attempts < maxAttempts {
-                    try? await Task.sleep(for: .milliseconds(100))
-                    attempts += 1
-                }
-                
-                if currentUser != nil {
-                    print("✅ User data loaded successfully")
-                } else {
-                    print("⚠️ User data loading timed out after \(attempts * 100)ms")
-                    // Don't set isLoading = false here, let it continue
-                    // The fallback in loadUserData should handle this
-                }
-            } else {
-                print("ℹ️ No existing session found")
-            }
-        } catch {
-            print("❌ Session check error: \(error)")
-            // Only clear if not already nil to avoid triggering didSet
-            if session != nil {
-                session = nil
-            }
-            currentUser = nil
-        }
-        
-        // Only set loading to false if we have a definitive state
-        // Either we have a user, or we confirmed there's no session
-        if currentUser != nil || session == nil {
-            print("🏁 Session check complete - Loading: false")
-            isLoading = false
+
+    // MARK: - Bootstrap
+
+    /// Implements the mobile session bootstrap pattern:
+    /// 1. Read Supabase session from Keychain — no network call.
+    /// 2. If session exists and is not expired, show the app immediately.
+    /// 3. Load user profile from API (necessary for campus/program/courses).
+    /// 4. Kick off a background token refresh — do NOT await it.
+    /// 5. Start the auth state listener for future sign-in / sign-out events.
+    func bootstrap() async {
+        print("[auth] bootstrap start")
+
+        // The Supabase SDK persists the session in Keychain and reads it back on init.
+        // Calling `session` here reads from that in-memory/Keychain cache.
+        // It may refresh the token if it is close to expiry; that is acceptable on first
+        // launch because the alternative is having no token at all.
+        if let cached = try? await supabaseClient.auth.session {
+            print("[auth] bootstrap cachedSession=true userId=\(cached.user.id)")
+            currentSession = cached
+            hasLoggedInBefore = true
+            await loadUserData(userId: cached.user.id.uuidString)
+            // Refresh silently — never block startup on this.
+            Task { await refreshInBackground() }
         } else {
-            // We have a session but no user data yet
-            // Wait a bit more before giving up
-            print("⏳ Waiting additional time for user data...")
-            try? await Task.sleep(for: .seconds(2))
-            
-            if currentUser == nil {
-                print("❌ Failed to load user data - clearing session")
-                // Clear the session and show login
-                if session != nil {
-                    session = nil
-                }
-                currentUser = nil
-            }
-            
-            print("🏁 Session check complete (delayed) - Loading: false")
-            isLoading = false
+            print("[auth] bootstrap no cached session → sign-in")
+            authState = .signedOut
         }
-        
-        print("🔐 === Session Check Complete ===")
+
+        startAuthListener()
     }
-    
-    private func handleAuthStateChange(event: AuthChangeEvent, session authSession: Session?) async {
+
+    private func refreshInBackground() async {
+        print("[auth] refresh start")
+        do {
+            let refreshed = try await supabaseClient.auth.refreshSession()
+            currentSession = refreshed
+            print("[auth] refresh success userId=\(refreshed.user.id)")
+        } catch {
+            print("[auth] refresh failed reason=\(error)")
+            let msg = error.localizedDescription.lowercased()
+            // Only force sign-out on an explicit invalid refresh token — not network blips.
+            if msg.contains("invalid") && (msg.contains("refresh") || msg.contains("grant")) {
+                currentSession = nil
+                authState = .signedOut
+            }
+        }
+    }
+
+    private func startAuthListener() {
+        guard listenerTask == nil else { return }
+        listenerTask = Task { [weak self] in
+            guard let self else { return }
+            for await (event, session) in await supabaseClient.auth.authStateChanges {
+                print("[auth] event \(event)")
+                await self.handleEvent(event, session: session)
+            }
+        }
+    }
+
+    private func handleEvent(_ event: AuthChangeEvent, session: Session?) async {
         switch event {
-        case .initialSession, .signedIn:
-            session = authSession
+        case .initialSession:
+            // Bootstrap already handled this; just keep currentSession in sync.
+            if let session { currentSession = session }
+
+        case .signedIn:
+            if let session {
+                currentSession = session
+                hasLoggedInBefore = true
+                await loadUserData(userId: session.user.id.uuidString)
+            }
+            authNotice = nil
+
+        case .passwordRecovery:
+            if let session { currentSession = session }
+            isPasswordRecoveryFlow = true
+            authNotice = "Choose a new password to finish resetting your account."
+
+        case .userUpdated:
+            authNotice = "Account details updated."
+
         case .signedOut:
-            session = nil
-            currentUser = nil
+            currentSession = nil
+            authState = .signedOut
+            isPasswordRecoveryFlow = false
+
         default:
             break
         }
     }
-    
-    // MARK: - Authentication
-    
-    func signIn(email: String, password: String) async throws {
-        isLoading = true
-        error = nil
-        
-        do {
-            session = try await supabaseClient.auth.signIn(
-                email: email,
-                password: password
-            )
-            
-            // User data will be loaded via session didSet
-        } catch {
-            self.error = error.localizedDescription
-            throw error
-        }
-        
-        isLoading = false
-    }
-    
-    func signUp(email: String, password: String, name: String) async throws {
-        isLoading = true
-        error = nil
-        
-        do {
-            // Sign up with Supabase
-            let response = try await supabaseClient.auth.signUp(
-                email: email,
-                password: password
-            )
-            
-            // Convert UUID to lowercase for backend API compatibility
-            let userId = response.user.id.uuidString.lowercased()
-            
-            // Create user in your backend
-            let createUserRequest = CreateUserRequest(
-                id: userId,
-                email: email,
-                name: name
-            )
-            
-            _ = try await exobookAPI.createUser(createUserRequest)
-            
-            session = response.session
-        } catch {
-            self.error = error.localizedDescription
-            throw error
-        }
-        
-        isLoading = false
-    }
-    
-    func signOut() async throws {
-        try await supabaseClient.auth.signOut()
-        session = nil
-        currentUser = nil
-    }
-    
-    // MARK: - Google Sign-In
-    
-    func signInWithGoogle() async throws {
-        isLoading = true
-        error = nil
-        
-        do {
-            // Start OAuth flow with Google
-            try await supabaseClient.auth.signInWithOAuth(
-                provider: .google,
-                redirectTo: URL(string: "exobook://auth-callback")!
-            )
-        } catch {
-            self.error = error.localizedDescription
-            throw error
-        }
-        
-        isLoading = false
-    }
-    
+
     // MARK: - User Data
-    
+
     private func loadUserData(userId: String) async {
-        // Prevent re-entrant calls
-        guard !isLoadingUserData else {
-            print("⚠️ Already loading user data, skipping...")
-            return
-        }
-        
+        guard !isLoadingUserData else { return }
         isLoadingUserData = true
         defer { isLoadingUserData = false }
-        
-        print("📥 === Loading User Data ===")
-        print("User ID: \(userId)")
-        
+
+        let uid = userId.lowercased()
+
         do {
-            // Convert UUID to lowercase for backend API compatibility
-            let lowercaseUserId = userId.lowercased()
-            
-            print("User ID (lowercase): \(lowercaseUserId)")
-            
-            // Fetch user profile
-            var user = try await exobookAPI.getUser(id: lowercaseUserId)
-            
-            print("✅ User fetched from API:")
-            print("  - ID: \(user.id)")
-            print("  - Email: \(user.email)")
-            print("  - Name: \(user.name)")
-            print("  - Username: \(user.username ?? "nil")")
-            print("  - Bio: \(user.bio ?? "nil")")
-            print("  - Picture: \(user.picture ?? "nil")")
-            print("  - Campus: \(user.campus ?? "nil")")
-            print("  - Program: \(user.program ?? "nil")")
-            print("  - Year: \(user.year?.description ?? "nil")")
-            
-            // Fetch user's enrolled courses separately
-            let courseItems: [UserCourseItem]?
-            do {
-                courseItems = try await exobookAPI.getMyCourses(userId: lowercaseUserId)
-                print("✅ Successfully fetched courses from API")
-            } catch {
-                print("❌ Failed to fetch courses: \(error)")
-                courseItems = nil
-            }
-            
-            // Convert UserCourseItem to UserCourse format
-            if let courseItems = courseItems, !courseItems.isEmpty {
-                print("🔍 Raw course items from API: \(courseItems.count) courses")
-                courseItems.forEach { print("  - \($0.courseCode): \($0.courseName)") }
-                
-                let userCourses = courseItems.map { item in
-                    UserCourse(
-                        id: UUID().uuidString, // Generate ID since API doesn't provide one
-                        name: item.courseName,
-                        courseCode: item.courseCode,
-                        courseName: item.courseName,
-                        year: Int(item.year) ?? user.year ?? 1
-                    )
-                }
-                
-                print("🔍 Converted to UserCourse: \(userCourses.count) courses")
-                userCourses.forEach { print("  - \($0.courseCode): \($0.courseName)") }
-                // Create new user with courses
-                user = User(
-                    id: user.id,
-                    email: user.email,
-                    name: user.name,
-                    username: user.username,
-                    bio: user.bio,
-                    picture: user.picture,
-                    campus: user.campus,
-                    program: user.program,
-                    year: user.year,
-                    courses: userCourses,
-                    createdAt: user.createdAt,
-                    updatedAt: user.updatedAt
-                )
-            } else {
-                print("⚠️ No courses found or courses list is empty")
-            }
-            
-            // Set current user FIRST
-            currentUser = user
-            print("✅ User data loaded successfully")
-            print("🔍 Final user courses: \(user.courses?.count ?? 0) courses")
-            print("🔍 Course codes: \(user.courseCodes)")
+            var user = try await linkioAPI.getUser(id: uid)
 
-            // Setup FCM after successful user load
+            if let items = try? await linkioAPI.getMyCourses(userId: uid), !items.isEmpty {
+                let courses = items.map { item in
+                    UserCourse(id: UUID().uuidString, name: item.courseName,
+                               courseCode: item.courseCode, courseName: item.courseName,
+                               year: item.year)
+                }
+                user = User(id: user.id, email: user.email, name: user.name,
+                            username: user.username, bio: user.bio, picture: user.picture,
+                            country: user.country, campus: user.campus, program: user.program,
+                            year: user.year, infoUpdated: user.infoUpdated,
+                            courses: courses, createdAt: user.createdAt, updatedAt: user.updatedAt)
+            }
+
+            authState = .authenticated(user)
             NotificationManager.shared.setupFCM(userId: user.id)
-            
-            print("=========================")
-        } catch {
-            print("=== ❌ Failed to Load User Data ===")
-            print("Error: \(error)")
-            print("Error details: \(error.localizedDescription)")
-            
-            // Use basic user info from Supabase session as fallback
-            if let session = session {
-                print("⚠️ Using fallback user from Supabase session")
-                let fallbackUser = User(
-                    id: session.user.id.uuidString.lowercased(),
-                    email: session.user.email ?? "",
-                    name: session.user.email ?? "User",
-                    username: nil,
-                    bio: nil,
-                    picture: nil,
-                    campus: nil,
-                    program: nil,
-                    year: nil,
-                    courses: nil,
-                    createdAt: nil,
-                    updatedAt: nil
-                )
-                currentUser = fallbackUser
+            print("[auth] user loaded id=\(user.id)")
 
-                // Setup FCM even with fallback user
-                NotificationManager.shared.setupFCM(userId: fallbackUser.id)
-                
-                print("✅ Fallback user set successfully")
+        } catch {
+            print("[auth] loadUserData failed: \(error)")
+            // Show app with minimal user from Supabase session (avoids blank auth screen).
+            if let session = currentSession {
+                let fallback = User(id: session.user.id.uuidString.lowercased(),
+                                    email: session.user.email ?? "",
+                                    name: session.user.email ?? "User",
+                                    username: nil, bio: nil, picture: nil, country: nil,
+                                    campus: nil, program: nil, year: nil, infoUpdated: false,
+                                    courses: nil, createdAt: nil, updatedAt: nil)
+                authState = .authenticated(fallback)
+                NotificationManager.shared.setupFCM(userId: fallback.id)
             } else {
-                print("❌ No Supabase session available for fallback")
-                // Clear everything to force re-login
-                currentUser = nil
-                if session != nil {
-                    self.session = nil
-                }
+                authState = .signedOut
             }
-            print("=========================")
         }
     }
-    
+
     func refreshUserData() async {
-        guard let userId = currentUser?.id else { return }
-        await loadUserData(userId: userId)
+        guard let uid = currentUser?.id else { return }
+        await loadUserData(userId: uid)
+    }
+
+    // MARK: - Sign In / Sign Up / Sign Out
+
+    func signIn(email: String, password: String) async throws {
+        error = nil
+        authNotice = nil
+        do {
+            let session = try await supabaseClient.auth.signIn(email: email, password: password)
+            currentSession = session
+            // handleEvent(.signedIn) will fire via authStateChanges listener.
+        } catch {
+            self.error = error.localizedDescription
+            throw error
+        }
+    }
+
+    func signUp(email: String, password: String, name: String) async throws {
+        error = nil
+        authNotice = nil
+        do {
+            let response = try await supabaseClient.auth.signUp(
+                email: email, password: password,
+                data: ["name": .string(name)]
+            )
+            let uid = response.user.id.uuidString.lowercased()
+            let req = CreateUserRequest(id: uid, email: email, name: name,
+                                        bio: "Eager to try out Exobook!", picture: "",
+                                        school: "", country: "", campus: "",
+                                        infoUpdated: false, program: "", year: 1)
+            _ = try await linkioAPI.createUser(req)
+            if let session = response.session {
+                currentSession = session
+            }
+            authNotice = response.session == nil
+                ? "Check your email to confirm your account before signing in."
+                : "Account created successfully."
+        } catch {
+            self.error = error.localizedDescription
+            throw error
+        }
+    }
+
+    func signOut() async throws {
+        if let user = currentUser { await deactivateCurrentFCMToken(userId: user.id) }
+        try await supabaseClient.auth.signOut()
+        currentSession = nil
+        authState = .signedOut
+        authNotice = nil
+        isPasswordRecoveryFlow = false
+    }
+
+    func deleteAccount() async throws {
+        guard let user = currentUser else { throw AccountError.notAuthenticated }
+        await deactivateCurrentFCMToken(userId: user.id)
+        try await linkioAPI.deleteUserAccount(id: user.id)
+        try await supabaseClient.auth.signOut()
+        currentSession = nil
+        authState = .signedOut
+        authNotice = nil
+        isPasswordRecoveryFlow = false
+    }
+
+    // MARK: - Password
+
+    func requestPasswordReset(email: String) async throws {
+        error = nil
+        authNotice = nil
+        do {
+            try await supabaseClient.auth.resetPasswordForEmail(
+                email, redirectTo: URL(string: "linkio://auth-callback")!)
+            authNotice = "Password reset email sent."
+        } catch {
+            self.error = error.localizedDescription
+            throw error
+        }
+    }
+
+    func completePasswordRecovery(newPassword: String) async throws {
+        error = nil
+        do {
+            _ = try await supabaseClient.auth.update(user: UserAttributes(password: newPassword))
+            isPasswordRecoveryFlow = false
+            authNotice = "Password updated. You can continue into the app."
+        } catch {
+            self.error = error.localizedDescription
+            throw error
+        }
+    }
+
+    func cancelPasswordRecovery() {
+        isPasswordRecoveryFlow = false
+        authNotice = nil
+        error = nil
+    }
+
+    // MARK: - Google Sign-In
+
+    func signInWithGoogle() async throws {
+        error = nil
+        authNotice = nil
+        do {
+            try await supabaseClient.auth.signInWithOAuth(
+                provider: .google,
+                redirectTo: URL(string: "linkio://auth-callback")!)
+        } catch {
+            self.error = error.localizedDescription
+            throw error
+        }
+    }
+
+    // MARK: - FCM
+
+    private func deactivateCurrentFCMToken(userId: String) async {
+        await withCheckedContinuation { continuation in
+            Messaging.messaging().token { token, _ in
+                guard let token else { continuation.resume(); return }
+                Task {
+                    try? await self.linkioAPI.deactivateDeviceToken(userId: userId, token: token)
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    // MARK: - Errors
+
+    enum AccountError: LocalizedError {
+        case notAuthenticated
+        var errorDescription: String? { "You must be signed in to perform this action." }
     }
 }
 
-// MARK: - Errors
-
 enum AuthError: LocalizedError {
-    case invalidResponse
-    case userCreationFailed
-    
+    case invalidResponse, userCreationFailed
     var errorDescription: String? {
         switch self {
-        case .invalidResponse:
-            return "Invalid response from server"
-        case .userCreationFailed:
-            return "Failed to create user account"
+        case .invalidResponse: return "Invalid response from server"
+        case .userCreationFailed: return "Failed to create user account"
         }
     }
 }

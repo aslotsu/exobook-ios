@@ -26,6 +26,6 @@ struct ChatsView: View {
     }
     
     private func initializeChatService(for user: User) {
-        chatService = ExobookChatService(currentUserId: user.id)
+        chatService = LinkioChatService(currentUserId: user.id)
     }
 }

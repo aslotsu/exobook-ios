@@ -1,5 +1,5 @@
 //
-//  ExobookAPIService.swift
+//  LinkioAPIService.swift
 //  Exobook
 //
 //  Created by Alfred Lotsu on 24/10/2025.
@@ -8,7 +8,7 @@
 import Foundation
 
 @MainActor
-class ExobookAPIService {
+class LinkioAPIService {
     private let network = NetworkService.shared
     private let baseURL = APIConfig.baseAPI
     
@@ -79,10 +79,6 @@ class ExobookAPIService {
 
     // MARK: - Redis Stats (Batch Fetching)
 
-    private struct BatchStatsResponse: Decodable {
-        let counts: [String: Int]
-    }
-
     func getBatchLikeCounts(userId: String, postIds: [String]) async throws -> [String: Int] {
         let request = BatchStatsRequest(postIds: postIds)
         let response: [String: Int] = try await network.post("\(baseURL)/api/redis/likes/mine/\(userId)", body: request)
@@ -148,6 +144,14 @@ class ExobookAPIService {
         return response
     }
 
+    /// Bump the parent reply's sub-reply counter in Redis. Mirrors web behaviour on nested-reply create.
+    func incrementSubReplyCount(parentReplyId: String) async {
+        let _: EmptyResponse? = try? await network.post(
+            "\(baseURL)/api/redis/reply-count/\(parentReplyId)",
+            body: EmptyBody()
+        )
+    }
+
     
     // MARK: - Images
     
@@ -210,7 +214,27 @@ class ExobookAPIService {
     
     func updateUserCourses(userId: String, courses: [CourseUpdateItem]) async throws -> EmptyResponse {
         let request = UpdateCoursesRequest(list: courses)
-        return try await network.put("\(baseURL)/api/users/courses/\(userId)", body: request)
+        return try await network.post("\(baseURL)/api/courses/set/\(userId)", body: request)
+    }
+
+    func setMyProgram(userId: String, program: Program) async throws -> EmptyResponse {
+        let request = MyProgramRequest(userId: userId, program: program)
+        return try await network.post("\(baseURL)/api/my-program", body: request)
+    }
+
+    func setMyCampus(userId: String, campus: CampusSelection) async throws -> EmptyResponse {
+        let request = MyCampusRequest(userId: userId, campus: campus)
+        return try await network.post("\(baseURL)/api/my-campus", body: request)
+    }
+
+    func getMyProgram(userId: String) async throws -> Program {
+        let response: ProgramEnvelope = try await network.get("\(baseURL)/api/my-program/\(userId)")
+        return response.data
+    }
+
+    func getMyCampus(userId: String) async throws -> CampusSelection {
+        let response: CampusEnvelope = try await network.get("\(baseURL)/api/my-campus/\(userId)")
+        return response.data
     }
 
     // MARK: - Device Tokens (FCM)
@@ -229,69 +253,35 @@ class ExobookAPIService {
         )
         return try await network.post("\(baseURL)/api/device-token", body: request)
     }
-    
-    // MARK: - Shopping
-    
-    func getItems(campus: String) async throws -> [ShoppingItem] {
-        try await network.get("\(baseURL)/api/shopping/\(campus)")
+
+    func deactivateDeviceToken(userId: String, token: String) async throws {
+        struct Body: Encodable {
+            let userId: String
+            let token: String
+            enum CodingKeys: String, CodingKey {
+                case userId = "user_id"
+                case token
+            }
+        }
+        struct Resp: Decodable { let message: String? }
+        let _: Resp = try await network.delete("\(baseURL)/api/device-token",
+                                               body: Body(userId: userId, token: token))
     }
-    
-    func getItem(itemId: String) async throws -> ShoppingItem {
-        try await network.get("\(baseURL)/api/shopping/one/\(itemId)")
+
+    func deleteUserAccount(id: String) async throws {
+        struct Resp: Decodable { let message: String? }
+        let _: Resp = try await network.delete("\(baseURL)/api/users/\(id)")
     }
-    
-    func getMyItems() async throws -> [ShoppingItem] {
-        try await network.get("\(baseURL)/api/shopping/mine")
-    }
-    
-    func createItem(_ item: CreateItemRequest) async throws -> ShoppingItem {
-        try await network.post("\(baseURL)/api/shopping/new-item", body: item)
-    }
-    
-    func deleteItem(itemId: String) async throws -> EmptyResponse {
-        try await network.delete("\(baseURL)/api/shopping/\(itemId)")
-    }
-    
-    // MARK: - Meetings
-    
-    func getMeetings(courses: String) async throws -> [Meeting] {
-        try await network.get("\(baseURL)/api/meetings/\(courses)")
-    }
-    
-    func getMeeting(id: String) async throws -> Meeting {
-        try await network.get("\(baseURL)/api/meetings/one/\(id)")
-    }
-    
-    func createMeeting(_ meeting: CreateMeetingRequest) async throws -> Meeting {
-        try await network.post("\(baseURL)/api/meetings/", body: meeting)
-    }
-    
-    func deleteMeeting(id: String) async throws -> EmptyResponse {
-        try await network.delete("\(baseURL)/api/meetings/\(id)")
-    }
-    
-    // MARK: - Groups
-    
-    func getMyGroups(userId: String) async throws -> [ExobookGroup] {
-        try await network.get("\(baseURL)/api/groups/\(userId)")
-    }
-    
-    func getGroup(id: String) async throws -> ExobookGroup {
-        try await network.get("\(baseURL)/api/group/\(id)")
-    }
-    
-    func createGroup(_ group: CreateGroupRequest) async throws -> ExobookGroup {
-        try await network.post("\(baseURL)/api/group", body: group)
-    }
-    
-    func joinGroup(id: String) async throws -> EmptyResponse {
-        try await network.patch("\(baseURL)/api/group/\(id)", body: EmptyBody())
-    }
-    
+
     // MARK: - Universities & Courses
     
     func getAllUniversities() async throws -> [University] {
-        try await network.get("\(baseURL)/api/unis")
+        let response: UniversitiesResponse = try await network.get("\(baseURL)/api/unis")
+        return response.universities
+    }
+
+    func getPrograms(universityId: String) async throws -> [Program] {
+        try await network.get("\(baseURL)/api/programs/\(universityId)")
     }
     
     func getCourses(universityId: String) async throws -> [Course] {
@@ -302,9 +292,79 @@ class ExobookAPIService {
         let response: UserCoursesResponse = try await network.get("\(baseURL)/api/courses/user/\(userId)")
         return response.list
     }
+
+    // MARK: - Meetings
+
+    func getMeetings(courses: [String], scope: MeetingScope = .upcoming) async throws -> [Meeting] {
+        let normalizedCourses = courses
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !normalizedCourses.isEmpty else {
+            return []
+        }
+
+        let joinedCourses = normalizedCourses.joined(separator: ",")
+        let encodedCourses = joinedCourses.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? joinedCourses
+        let endpoint = "\(baseURL)/api/meetings/\(encodedCourses)?scope=\(scope.rawValue)"
+        return try await network.get(endpoint)
+    }
+
+    func getMeeting(id: String) async throws -> Meeting {
+        try await network.get("\(baseURL)/api/meetings/one/\(id)")
+    }
+
+    func createMeeting(_ request: CreateMeetingRequest) async throws -> Meeting {
+        let response: MeetingEnvelope = try await network.post("\(baseURL)/api/meetings/", body: request)
+        return response.meeting
+    }
+
+    func updateMeeting(id: String, request: UpdateMeetingRequest) async throws -> Meeting {
+        let response: MeetingEnvelope = try await network.put("\(baseURL)/api/meetings/\(id)", body: request)
+        return response.meeting
+    }
+
+    func rsvpMeeting(id: String, request: MeetingRSVPRequest) async throws -> MeetingRSVPResponse {
+        try await network.patch("\(baseURL)/api/meetings/\(id)/rsvp", body: request)
+    }
+
+    func deleteMeeting(id: String) async throws {
+        let _: String = try await network.delete("\(baseURL)/api/meetings/\(id)")
+    }
     
+    // MARK: - Bookmarks
+
+    func createBookmark(postId: String, userId: String) async throws {
+        struct Body: Encodable {
+            let postId: String
+            let userId: String
+            enum CodingKeys: String, CodingKey {
+                case postId = "post_id"
+                case userId = "user_id"
+            }
+        }
+        let _: EmptyResponse = try await network.post("\(baseURL)/api/bookmarks", body: Body(postId: postId, userId: userId))
+    }
+
+    func deleteBookmark(postId: String, userId: String) async throws {
+        let _: EmptyResponse = try await network.delete("\(baseURL)/api/bookmarks/\(postId)?user_id=\(userId)")
+    }
+
+    func getUserBookmarks(userId: String) async throws -> [Post] {
+        struct BookmarksEnvelope: Decodable {
+            let bookmarks: [BookmarkItem]?
+            let data: [BookmarkItem]?
+            func posts() -> [Post] { (bookmarks ?? data ?? []).compactMap(\.post) }
+        }
+        struct BookmarkItem: Decodable {
+            let post: Post?
+        }
+        let envelope: BookmarksEnvelope = try await network.get("\(baseURL)/api/bookmarks/user/\(userId)")
+        return envelope.posts()
+    }
+
     // MARK: - Likes
-    
+
     func getMyLikes(userId: String) async throws -> [LikedPost] {
         // Note: Using APIConfig.likesAPI for DynamoDB likes service
         let response: LikesResponse = try await network.get("\(APIConfig.likesAPI)/api/likes/mine/\(userId)")
@@ -316,7 +376,7 @@ class ExobookAPIService {
     func searchPosts(query: String, perPage: Int = 10) async throws -> TypesenseSearchResponse {
         let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
         // Use main website URL for search proxy
-        let endpoint = "https://exobook.ca/api/search?q=\(encodedQuery)&collection=posts&per_page=\(perPage)"
+        let endpoint = "https://linkio.ca/api/search?q=\(encodedQuery)&collection=posts&per_page=\(perPage)"
         
         let response: TypesenseMultiSearchResponse = try await network.get(endpoint)
         return response.posts ?? TypesenseSearchResponse(hits: [], found: 0, page: 1)
@@ -324,7 +384,7 @@ class ExobookAPIService {
     
     func searchUsers(query: String, perPage: Int = 10) async throws -> TypesenseUserSearchResponse {
         let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-        let endpoint = "https://exobook.ca/api/search?q=\(encodedQuery)&collection=users&per_page=\(perPage)"
+        let endpoint = "https://linkio.ca/api/search?q=\(encodedQuery)&collection=users&per_page=\(perPage)"
         
         let response: TypesenseMultiSearchResponse = try await network.get(endpoint)
         return response.users ?? TypesenseUserSearchResponse(hits: [], found: 0, page: 1)
@@ -332,7 +392,7 @@ class ExobookAPIService {
     
     func searchAll(query: String, perPage: Int = 10) async throws -> TypesenseMultiSearchResponse {
         let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-        let endpoint = "https://exobook.ca/api/search?q=\(encodedQuery)&per_page=\(perPage)"
+        let endpoint = "https://linkio.ca/api/search?q=\(encodedQuery)&per_page=\(perPage)"
         
         return try await network.get(endpoint)
     }
@@ -454,24 +514,10 @@ struct Post: Codable, Identifiable, Hashable {
     var likeCount: Int { likes?.count ?? 0 }
     var commentCount: Int { comments?.count ?? 0 }
     var userAvatarURL: URL? {
-        // If userPicture is an SVG file, return nil to trigger CloudFront fallback
-        if userPicture.lowercased().hasSuffix(".svg") {
-            return nil
-        }
-        
-        if userPicture.starts(with: "http") {
-            return URL(string: userPicture)
-        }
-        // If path starts with /, it's a static asset from exobook.ca
-        // But since we've already filtered out SVGs, this shouldn't happen anymore
-        if userPicture.starts(with: "/") {
-            return URL(string: "https://exobook.ca\(userPicture)")
-        }
-        // Otherwise it's from S3
-        return URL(string: "https://exobook.s3.amazonaws.com/\(userPicture)")
+        resolveAvatarURL(userPicture)
     }
     var imageURLs: [URL] {
-        (images ?? []).compactMap { URL(string: "https://exobook.s3.amazonaws.com/\($0)") }
+        (images ?? []).compactMap(resolveMediaURL)
     }
     
     init(from decoder: Decoder) throws {
@@ -589,6 +635,28 @@ struct CreateUserRequest: Encodable {
     let id: String
     let email: String
     let name: String
+    let bio: String
+    let picture: String
+    let school: String
+    let country: String
+    let campus: String
+    let infoUpdated: Bool
+    let program: String
+    let year: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case email
+        case name
+        case bio
+        case picture
+        case school
+        case country
+        case campus
+        case infoUpdated = "info_updated"
+        case program
+        case year
+    }
 }
 
 struct UpdateUserRequest: Encodable {
@@ -613,62 +681,244 @@ struct UpdateUserRequest: Encodable {
     }
 }
 
-// Shopping
-struct CreateItemRequest: Encodable {
-    let title: String
-    let description: String
-    let price: Double
-    let campus: String
-}
+// Meetings
 
-struct ShoppingItem: Codable, Identifiable {
-    let id: String
-    let title: String
-    let description: String
-    let price: Double
-    let campus: String
-    let sellerId: String
+enum MeetingScope: String, CaseIterable, Identifiable {
+    case upcoming
+    case past
+    case all
 
-    enum CodingKeys: String, CodingKey {
-        case id
-        case title
-        case description
-        case price
-        case campus
-        case sellerId = "seller_id"
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .upcoming: return "Upcoming"
+        case .past: return "Past"
+        case .all: return "All"
+        }
     }
 }
 
-// Meetings
+struct Meeting: Codable, Identifiable, Hashable {
+    let id: String
+    let creatorId: String
+    let title: String
+    let creatorName: String
+    let creatorBio: String
+    let courseId: String
+    let createdAt: Date?
+    let location: String
+    let coordinates: String
+    let startTime: Date
+    let willAttend: [String]
+    let chatId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case creatorId = "creator"
+        case title
+        case creatorName = "creator_name"
+        case creatorBio = "creator_bio"
+        case courseId = "course"
+        case createdAt = "created_at"
+        case location
+        case coordinates
+        case startTime = "start_time"
+        case willAttend = "will_attend"
+        case chatId = "chat_id"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        creatorId = try container.decode(String.self, forKey: .creatorId)
+        title = try container.decode(String.self, forKey: .title)
+        creatorName = try container.decodeIfPresent(String.self, forKey: .creatorName) ?? ""
+        creatorBio = try container.decodeIfPresent(String.self, forKey: .creatorBio) ?? ""
+        courseId = try container.decodeIfPresent(String.self, forKey: .courseId) ?? ""
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
+        location = try container.decodeIfPresent(String.self, forKey: .location) ?? ""
+        coordinates = try container.decodeIfPresent(String.self, forKey: .coordinates) ?? ""
+        startTime = try container.decode(Date.self, forKey: .startTime)
+        willAttend = try container.decodeIfPresent([String].self, forKey: .willAttend) ?? []
+        chatId = try container.decodeIfPresent(String.self, forKey: .chatId)
+    }
+
+    init(
+        id: String,
+        creatorId: String,
+        title: String,
+        creatorName: String,
+        creatorBio: String,
+        courseId: String,
+        createdAt: Date?,
+        location: String,
+        coordinates: String,
+        startTime: Date,
+        willAttend: [String],
+        chatId: String? = nil
+    ) {
+        self.id = id
+        self.creatorId = creatorId
+        self.title = title
+        self.creatorName = creatorName
+        self.creatorBio = creatorBio
+        self.courseId = courseId
+        self.createdAt = createdAt
+        self.location = location
+        self.coordinates = coordinates
+        self.startTime = startTime
+        self.willAttend = willAttend
+        self.chatId = chatId
+    }
+
+    var attendees: [MeetingAttendee] {
+        willAttend.compactMap(MeetingAttendee.init(encoded:))
+    }
+
+    var attendeeCount: Int {
+        attendees.count
+    }
+
+    var isUpcoming: Bool {
+        startTime >= Date()
+    }
+
+    func isHosted(by userId: String) -> Bool {
+        creatorId == userId
+    }
+
+    func isAttending(userId: String) -> Bool {
+        attendees.contains(where: { $0.id == userId })
+    }
+}
+
+struct MeetingAttendee: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let picture: String
+
+    init?(encoded: String) {
+        let pieces = encoded.components(separatedBy: "||")
+        guard let id = pieces.first?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+            return nil
+        }
+
+        self.id = id
+        self.name = pieces.count > 1 ? pieces[1] : "Unknown attendee"
+        self.picture = pieces.count > 2 ? pieces[2] : ""
+    }
+
+    var pictureURL: URL? {
+        resolveAvatarURL(picture)
+    }
+}
+
 struct CreateMeetingRequest: Encodable {
+    let creatorId: String
     let title: String
-    let description: String
-    let courses: [String]
-    let date: Date
+    let creatorName: String
+    let creatorBio: String
+    let courseId: String
+    let location: String
+    let coordinates: String
+    let startTime: Date
+
+    enum CodingKeys: String, CodingKey {
+        case creatorId = "creator"
+        case title
+        case creatorName = "creator_name"
+        case creatorBio = "creator_bio"
+        case courseId = "course"
+        case location
+        case coordinates
+        case startTime = "start_time"
+    }
 }
 
-struct Meeting: Codable, Identifiable {
-    let id: String
-    let title: String
-    let description: String
-    let courses: [String]
-    let date: Date
+struct UpdateMeetingRequest: Encodable {
+    let title: String?
+    let courseId: String?
+    let location: String?
+    let startTime: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case courseId = "course"
+        case location
+        case startTime = "start_time"
+    }
 }
 
-// Groups
-struct CreateGroupRequest: Encodable {
-    let name: String
-    let description: String
+struct MeetingRSVPRequest: Encodable {
+    let userId: String
+    let userName: String
+    let userPicture: String
+    let attending: Bool
 }
 
-struct ExobookGroup: Codable, Identifiable {
-    let id: String
-    let name: String
-    let description: String
+struct MeetingRSVPResponse: Decodable {
+    let meeting: Meeting
+    let attending: Bool
+    let attendeeCount: Int
+}
+
+private struct MeetingEnvelope: Decodable {
+    let meeting: Meeting
 }
 
 // Universities & Courses
 struct University: Codable, Identifiable {
+    let id: String
+    let name: String
+    let active: Bool?
+    let code: String?
+    let country: String?
+    let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case active
+        case code
+        case country
+        case createdAt = "created_at"
+    }
+}
+
+private struct UniversitiesResponse: Decodable {
+    let universities: [University]
+
+    init(from decoder: Decoder) throws {
+        if let raw = try? [University](from: decoder) {
+            universities = raw
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let data = try? container.decode([University].self, forKey: .data) {
+            universities = data
+        } else if let unis = try? container.decode([University].self, forKey: .universities) {
+            universities = unis
+        } else {
+            universities = try container.decode([University].self, forKey: .items)
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case data
+        case universities
+        case items
+    }
+}
+
+struct Program: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let university: String
+}
+
+struct CampusSelection: Codable, Hashable {
     let id: String
     let name: String
 }
@@ -690,17 +940,61 @@ struct UserCoursesResponse: Codable {
     let list: [UserCourseItem]
 }
 
+private struct ProgramEnvelope: Decodable {
+    let data: Program
+}
+
+private struct CampusEnvelope: Decodable {
+    let data: CampusSelection
+}
+
+private struct MyProgramRequest: Encodable {
+    let userId: String
+    let program: Program
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case program
+    }
+}
+
+private struct MyCampusRequest: Encodable {
+    let userId: String
+    let campus: CampusSelection
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case campus
+    }
+}
+
 struct UserCourseItem: Codable {
     let courseCode: String
     let courseName: String
     let programName: String
-    let year: String
+    let year: Int
     
     enum CodingKeys: String, CodingKey {
         case courseCode = "course_code"
         case courseName = "course_name"
         case programName = "program_name"
         case year
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        courseCode = try container.decode(String.self, forKey: .courseCode)
+        courseName = try container.decode(String.self, forKey: .courseName)
+        programName = try container.decodeIfPresent(String.self, forKey: .programName) ?? ""
+
+        if let yearInt = try? container.decode(Int.self, forKey: .year) {
+            year = yearInt
+        } else if let yearString = try? container.decode(String.self, forKey: .year),
+                  let parsedYear = Int(yearString) {
+            year = parsedYear
+        } else {
+            year = 1
+        }
     }
 }
 

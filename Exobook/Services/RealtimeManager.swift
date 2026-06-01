@@ -9,6 +9,7 @@ import Foundation
 import PusherSwift
 import Observation
 import Combine
+import os
 
 @MainActor
 @Observable
@@ -41,12 +42,14 @@ final class RealtimeManager {
     private var likesChannel: PusherChannel?
     private var repliesChannel: PusherChannel?
     private var userNotifChannel: PusherChannel?
+    private var userChatsChannel: PusherChannel?   // user-{userId}-chats: invites + member-joined
 
     // Per-chat channels and message publishers, keyed by chatId.
-    // Chat subscriptions are demand-loaded from ExobookChatService rather than
+    // Chat subscriptions are demand-loaded from LinkioChatService rather than
     // eagerly subscribed at configure() time.
     private var chatChannels: [String: PusherChannel] = [:]
     private var chatMessageSubjects: [String: PassthroughSubject<Message, Never>] = [:]
+    private var chatTypingSubjects: [String: PassthroughSubject<(userId: String, isTyping: Bool), Never>] = [:]
 
     // Counts dictionaries (postId: count) - in-memory for fast access
     var likeCount: [String: Int] = [:]
@@ -78,9 +81,11 @@ final class RealtimeManager {
         likesChannel = pusher.subscribe("LIKES")
         repliesChannel = pusher.subscribe("REPLIES")
         userNotifChannel = pusher.subscribe("user-\(userId)-notifications")
+        userChatsChannel = pusher.subscribe("user-\(userId)-chats")
 
         setupEventHandlers()
         setupUserNotifHandler(userId: userId)
+        setupUserChatsHandler(userId: userId)
         pusher.connect()
 
         print("🔴 Pusher configured for user: \(userId)")
@@ -133,7 +138,49 @@ final class RealtimeManager {
         }
         pusher?.unsubscribe("chat-\(chatId)")
         chatMessageSubjects.removeValue(forKey: chatId)
-        print("✅ Unsubscribed from chat: \(chatId)")
+        chatTypingSubjects.removeValue(forKey: chatId)
+        Log.chat.info("Unsubscribed from chat: \(chatId)")
+    }
+
+    /// Publisher that emits (userId, isTyping) pairs for the given chat.
+    /// Binds to the existing chat-{chatId} channel (subscribing if needed).
+    func typingPublisher(chatId: String) -> AnyPublisher<(userId: String, isTyping: Bool), Never> {
+        if let subject = chatTypingSubjects[chatId] {
+            return subject.eraseToAnyPublisher()
+        }
+
+        let subject = PassthroughSubject<(userId: String, isTyping: Bool), Never>()
+        chatTypingSubjects[chatId] = subject
+
+        // Ensure the channel is subscribed (chatMessagePublisher may have already done this).
+        let channelName = "chat-\(chatId)"
+        let channel: PusherChannel
+        if let existing = chatChannels[chatId] {
+            channel = existing
+        } else {
+            guard let pusher = pusher else { return subject.eraseToAnyPublisher() }
+            channel = pusher.subscribe(channelName)
+            chatChannels[chatId] = channel
+        }
+
+        channel.bind(eventName: "user_typing") { [weak self] event in
+            guard let self,
+                  let data = event.data,
+                  let json = try? JSONSerialization.jsonObject(with: Data(data.utf8)) as? [String: Any],
+                  let userId = json["user_id"] as? String,
+                  userId != self.currentUserId else { return }
+            Task { @MainActor in self.chatTypingSubjects[chatId]?.send((userId, true)) }
+        }
+
+        channel.bind(eventName: "user_stop_typing") { [weak self] event in
+            guard let self,
+                  let data = event.data,
+                  let json = try? JSONSerialization.jsonObject(with: Data(data.utf8)) as? [String: Any],
+                  let userId = json["user_id"] as? String else { return }
+            Task { @MainActor in self.chatTypingSubjects[chatId]?.send((userId, false)) }
+        }
+
+        return subject.eraseToAnyPublisher()
     }
 
     /// Decode a Pusher `new-message` payload into a `Message`.
@@ -339,6 +386,21 @@ final class RealtimeManager {
         
         print("✅ Pusher event handlers configured successfully")
         print("🎯 Listening on channels: LIKES, posts, reply, REPLIES")
+    }
+
+    private func setupUserChatsHandler(userId: String) {
+        userChatsChannel?.bind(eventName: "chat-invite") { [weak self] event in
+            guard self != nil,
+                  let data = event.data,
+                  let jsonData = data.data(using: .utf8),
+                  let invite = try? JSONDecoder().decode(ChatInviteEvent.self, from: jsonData) else {
+                return
+            }
+            Task { @MainActor in
+                InviteStore.shared.add(invite)
+            }
+        }
+        Log.chat.info("Listening on channel: user-\(userId)-chats")
     }
 
     private func setupUserNotifHandler(userId: String) {
@@ -846,7 +908,7 @@ extension RealtimeManager: PusherDelegate {
         print("⏰ [\(timestamp)] ✅ Subscribed to channel: \(name)")
     }
     
-    func failedToSubscribeToChannel(name: String, response: URLResponse?, data: String?, error: Error?) {
+    func failedToSubscribeToChannel(name: String, response: URLResponse?, data: String?, error: NSError?) {
         let timestamp = Date().formatted(date: .omitted, time: .standard)
         print("⏰ [\(timestamp)] ❌ FAILED to subscribe to: \(name)")
         print("   Error: \(error?.localizedDescription ?? "unknown")")

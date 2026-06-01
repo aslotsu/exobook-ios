@@ -87,7 +87,7 @@ struct MyPostsView: View {
 @Observable
 class MyPostsViewModel {
     let userId: String
-    private let api = ExobookAPIService()
+    private let api = LinkioAPIService()
     
     var posts: [Post] = []
     var isLoading = false

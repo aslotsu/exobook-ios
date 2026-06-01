@@ -66,13 +66,11 @@ struct NotificationsView: View {
 
     private func markAllAsRead() {
         guard let userId = currentUser?.id else { return }
-        let unreadKeys = notifications
-            .filter { !$0.isRead }
-            .compactMap { $0.actionKey }
+        let unreadIds = notifications.filter { !$0.isRead }.map(\.id)
         StatsCacheManager.shared.markAllNotificationsAsRead(forUserId: userId)
-        guard !unreadKeys.isEmpty else { return }
-        Task { [unreadKeys] in
-            try? await notifAPI.batchMarkAsRead(userId: userId, actionKeys: unreadKeys)
+        guard !unreadIds.isEmpty else { return }
+        Task { [unreadIds] in
+            try? await notifAPI.batchMarkAsRead(userId: userId, notificationIds: unreadIds)
         }
     }
 
@@ -92,11 +90,9 @@ struct NotificationsView: View {
     }
 
     private func syncReadToServer(_ notification: CachedNotification) {
-        guard let owner = notification.userId,
-              let actor = notification.actionUserId,
-              let actionKey = notification.actionKey else { return }
+        guard let userId = notification.userId else { return }
         Task {
-            try? await notifAPI.markAsRead(owner: owner, userId: actor, actionKey: actionKey)
+            try? await notifAPI.markAsRead(notificationId: notification.id, userId: userId)
         }
     }
 

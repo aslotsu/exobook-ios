@@ -65,6 +65,20 @@ class FriendsAPIService {
         )
         return envelope.data
     }
+
+    func getSuggestions(userId: String, limit: Int = 20) async throws -> [FriendSuggestion] {
+        let envelope: APIEnvelope<SuggestionsResponse> = try await network.get(
+            "\(baseURL)/friends/\(userId)/suggestions?limit=\(limit)"
+        )
+        return envelope.data.suggestions
+    }
+
+    func getMutualFriends(userId: String, otherId: String) async throws -> MutualFriendsResponse {
+        let envelope: APIEnvelope<MutualFriendsResponse> = try await network.get(
+            "\(baseURL)/friends/\(userId)/mutual/\(otherId)"
+        )
+        return envelope.data
+    }
 }
 
 // MARK: - Models
@@ -144,6 +158,34 @@ private struct FriendRequestActionBody: Encodable {
         case fromId = "from_id"
         case toId = "to_id"
     }
+}
+
+struct FriendSuggestion: Decodable, Identifiable {
+    var id: String { userId }
+    let userId: String
+    let mutualCount: Int
+    let reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case mutualCount = "mutual_count"
+        case reason
+    }
+}
+
+struct MutualFriendsResponse: Decodable {
+    let mutualFriends: [Friend]
+    let count: Int
+
+    enum CodingKeys: String, CodingKey {
+        case mutualFriends = "mutual_friends"
+        case count
+    }
+}
+
+private struct SuggestionsResponse: Decodable {
+    let suggestions: [FriendSuggestion]
+    let count: Int
 }
 
 private struct RespondToRequestBody: Encodable {

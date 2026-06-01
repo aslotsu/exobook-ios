@@ -10,6 +10,58 @@ import SDWebImageSwiftUI
 
 // MARK: - Avatar Utilities
 
+private let linkioS3BaseURL = "https://linkio-ca.s3.ca-central-1.amazonaws.com"
+private let linkioSiteBaseURL = "https://linkio.ca"
+
+private func normalizedURL(from raw: String) -> URL? {
+    if let url = URL(string: raw) { return url }
+    guard let encoded = raw.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed) else {
+        return nil
+    }
+    return URL(string: encoded)
+}
+
+private func looksLikeSVG(_ raw: String) -> Bool {
+    let base = raw.lowercased().split(separator: "?", maxSplits: 1).first.map(String.init) ?? raw.lowercased()
+    return base.hasSuffix(".svg")
+}
+
+/// Resolves avatar references returned by the backend:
+/// absolute URL, site-relative path, or S3 object key.
+/// Returns nil for SVG avatars so callers can fall back to initials-based CloudFront images.
+func resolveAvatarURL(_ raw: String?) -> URL? {
+    guard let raw, !raw.isEmpty else { return nil }
+    if looksLikeSVG(raw) { return nil }
+
+    if raw.starts(with: "http://") || raw.starts(with: "https://") {
+        return normalizedURL(from: raw)
+    }
+
+    if raw.starts(with: "/") {
+        return normalizedURL(from: "\(linkioSiteBaseURL)\(raw)")
+    }
+
+    let encodedPath = raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? raw
+    return normalizedURL(from: "\(linkioS3BaseURL)/\(encodedPath)")
+}
+
+/// Resolves media/file references returned by the backend:
+/// absolute URL, site-relative path, or S3 object key.
+func resolveMediaURL(_ raw: String) -> URL? {
+    guard !raw.isEmpty else { return nil }
+
+    if raw.starts(with: "http://") || raw.starts(with: "https://") {
+        return normalizedURL(from: raw)
+    }
+
+    if raw.starts(with: "/") {
+        return normalizedURL(from: "\(linkioSiteBaseURL)\(raw)")
+    }
+
+    let encodedPath = raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? raw
+    return normalizedURL(from: "\(linkioS3BaseURL)/\(encodedPath)")
+}
+
 /// Extracts initials from a user's name following the avatar system rules
 /// - Multiple names: First letter of first name + First letter of last name
 /// - Single name: First two letters
@@ -52,9 +104,11 @@ struct ProfileImageView: View {
     let imageURL: URL?
     let userName: String? // Used for generating fallback CloudFront URL
     let size: CGFloat
+    @State private var didFailPrimaryImage = false
     
     var body: some View {
-        let finalURL = imageURL ?? fallbackCloudFrontURL
+        let primaryURL = imageURL
+        let finalURL = (didFailPrimaryImage ? nil : primaryURL) ?? fallbackCloudFrontURL
         
         WebImage(url: finalURL)
             .onSuccess { image, data, cacheType in
@@ -62,10 +116,14 @@ struct ProfileImageView: View {
                 if let data = data {
                     print("📊 DEBUG_PROFILE_IMAGE: Image data size: \(data.count) bytes")
                 }
+                didFailPrimaryImage = false
             }
             .onFailure { error in
                 print("❌ DEBUG_PROFILE_IMAGE: Failed to load image from URL: \(finalURL?.absoluteString ?? "nil")")
                 print("❌ DEBUG_PROFILE_IMAGE: Error: \(error.localizedDescription)")
+                if !didFailPrimaryImage, primaryURL != nil {
+                    didFailPrimaryImage = true
+                }
             }
 //            .placeholder {
 //                // Show a simple circle placeholder while loading

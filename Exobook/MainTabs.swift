@@ -9,7 +9,7 @@ import SwiftUI
 import Combine
 
 enum ExoTab: Int, CaseIterable {
-    case feed, explore, notifications, chats, profile
+    case feed, groups, meetings, chats, profile
 }
 
 struct MainTabs: View {
@@ -20,8 +20,8 @@ struct MainTabs: View {
 
     // Navigation paths for each tab
     @State private var feedPath = NavigationPath()
-    @State private var explorePath = NavigationPath()
-    @State private var notificationsPath = NavigationPath()
+    @State private var groupsPath = NavigationPath()
+    @State private var meetingsPath = NavigationPath()
     @State private var chatsPath = NavigationPath()
     @State private var profilePath = NavigationPath()
 
@@ -50,18 +50,15 @@ struct MainTabs: View {
             .tabItem { Label("Feed", systemImage: "house") }
             .tag(ExoTab.feed)
 
-            // TODO: Explore page temporarily disabled - will revisit in future
-            // ExploreView()
-            //     .embedInNav(title: "Explore", path: $explorePath)
-            //     .tabItem { Label("Explore", systemImage: "magnifyingglass") }
-            //     .tag(ExoTab.explore)
-            
+            GroupsView()
+                .embedInNav(title: "Groups", path: $groupsPath)
+                .tabItem { Label("Groups", systemImage: "person.3") }
+                .tag(ExoTab.groups)
 
-            NotificationsView()
-                .embedInNav(title: "Notifications", path: $notificationsPath)
-                .tabItem { Label("Notifications", systemImage: "bell") }
-                .badge(unreadNotifCount)
-                .tag(ExoTab.notifications)
+            MeetingsView()
+                .embedInNav(title: "Meetings", path: $meetingsPath)
+                .tabItem { Label("Meetings", systemImage: "calendar") }
+                .tag(ExoTab.meetings)
 
             ChatsView()
                 .embedInNav(title: "Chats", path: $chatsPath)
@@ -93,11 +90,7 @@ struct MainTabs: View {
         .onChange(of: navigationManager.selectedTab) { oldValue, newValue in
             selection = newValue
         }
-        .onChange(of: selection) { _, newTab in
-            if newTab == .notifications {
-                Task { await refreshUnreadCount() }
-            }
-        }
+        .onChange(of: selection) { _, _ in }
         .onAppear {
             configureRealtimeIfNeeded()
         }
@@ -158,7 +151,8 @@ struct MainTabs: View {
             print("📱 Profile navigation not yet implemented: \(userId)")
             navigationManager.clearNavigation()
         case .notifications:
-            // Already switched to notifications tab
+            // Notifications are now shown in the feed top bar
+            selection = .feed
             navigationManager.clearNavigation()
         }
     }
@@ -174,7 +168,7 @@ struct MainTabs: View {
             isLoadingPost = true
 
             do {
-                let api = ExobookAPIService()
+                let api = LinkioAPIService()
                 let post = try await api.getPost(id: postId)
 
                 // Wait a brief moment to ensure tab switch completes

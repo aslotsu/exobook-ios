@@ -12,7 +12,7 @@ import Combine
 @MainActor
 @Observable
 class FeedViewModel {
-    private let exobookAPI = ExobookAPIService()
+    private let linkioAPI = LinkioAPIService()
     private let likesAPI = LikesAPIService()
     private let realtimeManager = RealtimeManager.shared
     private let cacheManager = StatsCacheManager.shared
@@ -34,20 +34,27 @@ class FeedViewModel {
     
     // User context
     var currentUserId: String
+    var userName: String
+    var userPicture: String
+    var userBio: String
     var userYear: Int
     var userCourses: [String] // course codes
     var userCampus: String
-    
+
     // Like state tracking
     var likedPostIds: Set<String> = []
     var bookmarkedPostIds: Set<String> = []
-    
-    init(userId: String, year: Int, courses: [String], campus: String) {
+
+    init(userId: String, userName: String, userPicture: String, userBio: String, year: Int, courses: [String], campus: String) {
         self.currentUserId = userId
+        self.userName = userName
+        self.userPicture = userPicture
+        self.userBio = userBio
         self.userYear = year
         self.userCourses = courses
         self.userCampus = campus
         self.selectedCourses = courses
+        loadBookmarks()
     }
     
     // MARK: - Feed Operations
@@ -66,7 +73,7 @@ class FeedViewModel {
             )
 
             // Fetch first page
-            let response = try await exobookAPI.getAllPosts(
+            let response = try await linkioAPI.getAllPosts(
                 request: request,
                 page: currentPage,
                 limit: pageSize
@@ -124,7 +131,7 @@ class FeedViewModel {
             )
 
             // Fetch next page
-            let response = try await exobookAPI.getAllPosts(
+            let response = try await linkioAPI.getAllPosts(
                 request: request,
                 page: currentPage,
                 limit: pageSize
@@ -146,8 +153,8 @@ class FeedViewModel {
             // Load stats for new posts only from Redis (will override if different)
             let newPostIds = newPosts.map { $0.id }
             if !newPostIds.isEmpty {
-                async let likeCounts = exobookAPI.getBatchLikeCounts(userId: currentUserId, postIds: newPostIds)
-                async let commentCounts = exobookAPI.getBatchCommentCounts(userId: currentUserId, postIds: newPostIds)
+                async let likeCounts = linkioAPI.getBatchLikeCounts(userId: currentUserId, postIds: newPostIds)
+                async let commentCounts = linkioAPI.getBatchCommentCounts(userId: currentUserId, postIds: newPostIds)
 
                 let (likes, comments) = try await (likeCounts, commentCounts)
                 realtimeManager.batchInitializeCounts(
@@ -206,36 +213,46 @@ class FeedViewModel {
     
     // MARK: - Post Operations
     
-    func createPost(user: User, title: String, content: String, subject: String?, images: [Data] = []) async throws {
-        // Default to General - Campus if no subject selected
-        let finalSubject = subject ?? "General - \(userCampus)"
+    func createPost(
+        user: User,
+        title: String,
+        content: String,
+        subject: String,
+        isAnonymous: Bool,
+        images: [Data] = []
+    ) async throws {
         let bridgedContent = content.bridgedComposerHTML
+        let displayName = isAnonymous ? "Anonymous" : user.name
+        let displayPicture = isAnonymous
+            ? "https://linkio-ca.s3.ca-central-1.amazonaws.com/4366a04e-cfca-4930-b014-96ef16724731-exobook-anon-2.png"
+            : (user.picture ?? "")
+        let displayBio = isAnonymous ? "" : (user.bio ?? "")
         
         // 1. Create Post
         let request = CreatePostRequest(
             userId: user.id,
-            username: user.name,
-            userPicture: user.picture ?? "",
-            userBio: user.bio ?? "",
+            username: displayName,
+            userPicture: displayPicture,
+            userBio: displayBio,
             userProgramme: user.program ?? "",
             userYear: user.year ?? 0,
             userCampus: user.campus ?? "",
-            title: title,
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             content: bridgedContent,
-            subject: finalSubject,
+            subject: subject,
             tags: nil,
             images: []
         )
         
-        var newPost = try await exobookAPI.createPost(request)
+        var newPost = try await linkioAPI.createPost(request)
         
         // 2. Upload Images if any
         if !images.isEmpty {
-            let filenames = try await exobookAPI.uploadImages(images)
+            let filenames = try await linkioAPI.uploadImages(images)
             
             // 3. Update Post with Image Filenames
             if !filenames.isEmpty {
-                newPost = try await exobookAPI.updatePostImages(postId: newPost.id, images: filenames)
+                newPost = try await linkioAPI.updatePostImages(postId: newPost.id, images: filenames)
             }
         }
         
@@ -252,7 +269,7 @@ class FeedViewModel {
     }
     
     func deletePost(_ postId: String) async throws {
-        _ = try await exobookAPI.deletePost(id: postId)
+        _ = try await linkioAPI.deletePost(id: postId)
         
         // Remove from local state
         posts.removeAll { $0.id == postId }
@@ -282,7 +299,11 @@ class FeedViewModel {
             if isLiked {
                 _ = try await likesAPI.unlikePost(postId: post.id, userId: currentUserId)
             } else {
-                _ = try await likesAPI.likePost(postId: post.id, userId: currentUserId)
+                _ = try await likesAPI.likePost(
+                    postId: post.id, userId: currentUserId,
+                    owner: post.userId, username: userName,
+                    userPicture: userPicture, userBio: userBio
+                )
             }
             // Success - RealtimeManager will get Pusher event and update counts
         } catch {
@@ -305,8 +326,8 @@ class FeedViewModel {
         
         do {
             // Follow frontend pattern: use batch API endpoints to get counts
-            async let likeCounts = exobookAPI.getBatchLikeCounts(userId: currentUserId, postIds: postIds)
-            async let commentCounts = exobookAPI.getBatchCommentCounts(userId: currentUserId, postIds: postIds)
+            async let likeCounts = linkioAPI.getBatchLikeCounts(userId: currentUserId, postIds: postIds)
+            async let commentCounts = linkioAPI.getBatchCommentCounts(userId: currentUserId, postIds: postIds)
             
             let (likes, comments) = try await (likeCounts, commentCounts)
             
@@ -369,29 +390,49 @@ class FeedViewModel {
     }
     
     // MARK: - Bookmark Operations
-    
+
     func toggleBookmark(for postId: String) {
-        if bookmarkedPostIds.contains(postId) {
+        let wasBookmarked = bookmarkedPostIds.contains(postId)
+        if wasBookmarked {
             bookmarkedPostIds.remove(postId)
         } else {
             bookmarkedPostIds.insert(postId)
         }
-        
-        // TODO: Persist to backend/UserDefaults
-        saveBookmarks()
+        Task {
+            do {
+                if wasBookmarked {
+                    try await linkioAPI.deleteBookmark(postId: postId, userId: currentUserId)
+                } else {
+                    try await linkioAPI.createBookmark(postId: postId, userId: currentUserId)
+                }
+            } catch {
+                // Revert optimistic update on failure
+                if wasBookmarked {
+                    bookmarkedPostIds.insert(postId)
+                } else {
+                    bookmarkedPostIds.remove(postId)
+                }
+                print("[Feed] ❌ Failed to toggle bookmark: \(error.localizedDescription)")
+            }
+        }
     }
-    
+
     func isBookmarked(_ postId: String) -> Bool {
         bookmarkedPostIds.contains(postId)
     }
-    
-    private func saveBookmarks() {
-        UserDefaults.standard.set(Array(bookmarkedPostIds), forKey: "bookmarked_posts_\(currentUserId)")
+
+    func bookmarkedPostIDs() -> [String] {
+        Array(bookmarkedPostIds)
     }
-    
+
     private func loadBookmarks() {
-        if let saved = UserDefaults.standard.array(forKey: "bookmarked_posts_\(currentUserId)") as? [String] {
-            bookmarkedPostIds = Set(saved)
+        Task {
+            do {
+                let bookmarks = try await linkioAPI.getUserBookmarks(userId: currentUserId)
+                bookmarkedPostIds = Set(bookmarks.map(\.id))
+            } catch {
+                print("[Feed] ⚠️ Failed to load bookmarks from API: \(error.localizedDescription)")
+            }
         }
     }
     

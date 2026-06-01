@@ -12,7 +12,7 @@ struct NestedCommentSection: View {
     @State private var subReplyCounts: [String: Int] = [:]
     @State private var isLoading = false
     @State private var hasLoaded = false
-    private let api = ExobookAPIService()
+    private let api = LinkioAPIService()
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

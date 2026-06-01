@@ -96,8 +96,8 @@ struct PostDetailView: View {
                     .fontWeight(.bold)
             }
             
-            Text(stripHTML(from: post.content))
-                .font(.body)
+            Text(post.content.htmlAttributedString(fontSize: 17))
+                .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -229,6 +229,7 @@ struct CommentRow: View {
     @State private var isLiked = false
     @State private var likeCount = 0
     @State private var showReplies = false
+    private let likesAPI = LikesAPIService()
     
     init(comment: Reply, initialLikeCount: Int = 0, replyCount: Int = 0, onReply: @escaping (Reply) -> Void = { _ in }) {
         self.comment = comment
@@ -262,13 +263,13 @@ struct CommentRow: View {
                     if let images = comment.images, !images.isEmpty {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
                             ForEach(Array(images), id: \.self) { (imageId: String) in
-                                let urlString = imageId.hasPrefix("http") ? imageId : "https://exobook.s3.amazonaws.com/\(imageId)"
-                                WebImage(url: URL(string: urlString))
+                                let imageURL = resolveMediaURL(imageId)
+                                WebImage(url: imageURL)
                                     .onSuccess { _, _, _ in
-                                        print("✅ DEBUG: Loaded image: \(urlString)")
+                                        print("✅ DEBUG: Loaded image: \(imageURL?.absoluteString ?? imageId)")
                                     }
                                     .onFailure { error in
-                                        print("❌ DEBUG: Failed to load image: \(urlString), Error: \(error)")
+                                        print("❌ DEBUG: Failed to load image: \(imageURL?.absoluteString ?? imageId), Error: \(error)")
                                     }
                                     .resizable()
                                     .indicator(.activity)
@@ -285,12 +286,7 @@ struct CommentRow: View {
                     
                     HStack(spacing: 16) {
                         // Comment like button (Moved to start)
-                        Button(action: {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                                isLiked.toggle()
-                                likeCount += isLiked ? 1 : -1
-                            }
-                        }) {
+                        Button(action: { toggleLike() }) {
                             HStack(spacing: 3) {
                                 Image(systemName: isLiked ? "heart.fill" : "heart")
                                     .foregroundStyle(isLiked ? .red : .secondary)
@@ -362,20 +358,43 @@ struct CommentRow: View {
     
     // Helper to convert user image string to URL
     private func avatarURL(from imageString: String) -> URL? {
-        // Skip SVG files
-        if imageString.lowercased().hasSuffix(".svg") {
-            return nil
+        resolveAvatarURL(imageString)
+    }
+
+    private func toggleLike() {
+        guard let userId = currentUser?.id else { return }
+
+        let previousLiked = isLiked
+        let previousCount = likeCount
+
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+            isLiked.toggle()
+            likeCount += isLiked ? 1 : -1
         }
-        
-        if imageString.starts(with: "http") {
-            return URL(string: imageString)
+
+        Task {
+            do {
+                if previousLiked {
+                    _ = try await likesAPI.unlikeComment(commentId: comment.id, userId: userId)
+                } else {
+                    _ = try await likesAPI.likeComment(
+                        commentId: comment.id, userId: userId,
+                        owner: comment.userId ?? userId,
+                        username: currentUser?.name ?? "",
+                        userPicture: currentUser?.picture ?? "",
+                        userBio: currentUser?.bio ?? ""
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    withAnimation {
+                        isLiked = previousLiked
+                        likeCount = previousCount
+                    }
+                }
+                print("[CommentRow] ❌ Failed to toggle reply like: \(error.localizedDescription)")
+            }
         }
-        
-        if imageString.starts(with: "/") {
-            return URL(string: "https://exobook.ca\(imageString)")
-        }
-        
-        return URL(string: "https://exobook.s3.amazonaws.com/\(imageString)")
     }
 }
 
@@ -474,7 +493,7 @@ class PostDetailViewModel {
     let post: Post
     let currentUser: User
     var currentUserId: String { currentUser.id }
-    private let api = ExobookAPIService()
+    private let api = LinkioAPIService()
     private let likesAPI = LikesAPIService()
     private let cacheManager = StatsCacheManager.shared
     
@@ -605,9 +624,10 @@ class PostDetailViewModel {
                 // For now, appending the newComment (with images attached)
                 comments.append(newComment)
                 commentCount = comments.count
-            } else {
-                 // For nested replies, we might want to alert success or just clear
-                 // Since we can't see them yet, maybe just reload to be safe
+            } else if let parent = replyingTo {
+                 // Bump the parent's sub-reply counter in Redis (matches web behaviour).
+                 await api.incrementSubReplyCount(parentReplyId: parent.id)
+                 // Reload so the new nested reply becomes visible
                  await loadComments()
             }
             
@@ -637,7 +657,11 @@ class PostDetailViewModel {
         
         do {
             if isLiked {
-                try await likesAPI.likePost(postId: post.id, userId: currentUserId)
+                try await likesAPI.likePost(
+                    postId: post.id, userId: currentUserId,
+                    owner: post.userId, username: currentUser.name,
+                    userPicture: currentUser.picture ?? "", userBio: currentUser.bio ?? ""
+                )
             } else {
                 try await likesAPI.unlikePost(postId: post.id, userId: currentUserId)
             }
@@ -650,12 +674,6 @@ class PostDetailViewModel {
             print("Failed to toggle like: \(error)")
         }
     }
-}
-
-// MARK: - Helper Functions
-
-private func stripHTML(from string: String) -> String {
-    string.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression, range: nil)
 }
 
 // MARK: - Date Extension

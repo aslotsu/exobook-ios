@@ -21,7 +21,7 @@ struct QuickReplyView: View {
     @State private var selectedItems: [PhotosPickerItem] = []
     @State private var selectedImages: [UIImage] = []
     
-    private let api = ExobookAPIService()
+    private let api = LinkioAPIService()
     private let cacheManager = StatsCacheManager.shared
     
     var body: some View {

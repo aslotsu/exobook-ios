@@ -1,5 +1,5 @@
 //
-//  ExobookApp.swift
+//  LinkioApp.swift
 //  Exobook
 //
 //  Created by Alfred Lotsu on 21/10/2025.
@@ -8,10 +8,31 @@
 import SwiftUI
 import Supabase
 import FirebaseCore
+import FirebaseMessaging
 import SwiftData
 
+final class LinkioAppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        Messaging.messaging().apnsToken = deviceToken
+        Task { @MainActor in
+            NotificationManager.shared.remoteNotificationsRegistered()
+        }
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        print("❌ Failed to register for remote notifications: \(error)")
+    }
+}
+
 @main
-struct ExobookApp: App {
+struct LinkioApp: App {
+    @UIApplicationDelegateAdaptor(LinkioAppDelegate.self) private var appDelegate
     @StateObject private var notificationManager = NotificationManager.shared
     @State private var selectedTab: Int = 0
     @State private var navigationPath = NavigationPath()
@@ -21,10 +42,26 @@ struct ExobookApp: App {
         FirebaseApp.configure()
         print("✅ Firebase initialized")
 
-        // Attach the Supabase access token to outgoing API requests so auth-gated
-        // backends (chat first; others as they enforce JWT) keep working.
+        // Attach the Supabase Bearer token to every outgoing request.
+        // Fast path: AuthenticationManager.currentSession is set during bootstrap
+        // from the Keychain-persisted session — synchronous, never throws.
+        // Fallback: ask the Supabase SDK directly (handles refresh).
         NetworkService.shared.authTokenProvider = {
-            try? await supabase.auth.session.accessToken
+            if let token = AuthenticationManager.shared.sessionAccessToken {
+                return token
+            }
+            do {
+                return try await supabase.auth.session.accessToken
+            } catch {
+                print("[auth] authTokenProvider: no valid session — \(error)")
+                return nil
+            }
+        }
+
+        // X-Authenticated-User-ID — required by backends that don't validate JWT directly.
+        NetworkService.shared.userIdProvider = {
+            AuthenticationManager.shared.currentUser?.id
+                ?? AuthenticationManager.shared.currentSession?.user.id.uuidString.lowercased()
         }
 
         // Configure notification categories

@@ -10,109 +10,147 @@ import SwiftUI
 
 struct SavedPostsView: View {
     @Environment(\.currentUser) private var currentUser
+    @State private var viewModel: SavedPostsViewModel?
     
     var body: some View {
-        List {
-            ForEach(createPlaceholderPosts()) { post in
-                ZStack {
-                    PostCard(
-                        post: post,
-                        currentUserId: currentUser?.id ?? "",
-                        isBookmarked: true,
-                        onLike: {},
-                        onComment: {},
-                        onBookmark: {},
-                        onDelete: {},
-                        onReport: {}
-                    )
-                    
-                    NavigationLink(destination: PostDetailView(post: post)) {
-                        EmptyView()
+        Group {
+            if let viewModel {
+                content(viewModel: viewModel)
+            } else {
+                ProgressView("Loading saved posts...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .task {
+                        guard viewModel == nil, let userId = currentUser?.id else { return }
+                        let newViewModel = SavedPostsViewModel(userId: userId)
+                        self.viewModel = newViewModel
+                        await newViewModel.load()
                     }
-                    .opacity(0)
-                }
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                .listRowSeparator(.hidden)
             }
         }
-        .listStyle(.plain)
+        .background(Color.appBackground)
         .navigationTitle("Saved Posts")
         .navigationBarTitleDisplayMode(.inline)
     }
-    
-    private func createPlaceholderPosts() -> [Post] {
-        let jsonString = """
-        [
-            {
-                "id": "saved1",
-                "user_id": "u1",
-                "username": "jane_doe",
-                "user_name": "Jane Doe",
-                "user_bio": "CS Student",
-                "user_campus": "Main Campus",
-                "user_programme": "Computer Science",
-                "user_year": 3,
-                "user_picture": "",
-                "title": "Best study spots on campus?",
-                "content": "I usually go to the library but it's been so crowded lately. Does anyone know of any quiet study spots with power outlets?",
-                "subject": "General",
-                "images": [],
-                "likes": ["u2"],
-                "comments": [],
-                "created_at": "2025-10-20T10:00:00Z",
-                "updated_at": "2025-10-20T10:00:00Z"
-            },
-            {
-                "id": "saved2",
-                "user_id": "u2",
-                "username": "alex_smith",
-                "user_name": "Alex Smith",
-                "user_bio": "Engineering",
-                "user_campus": "West Campus",
-                "user_programme": "Mechanical Engineering",
-                "user_year": 2,
-                "user_picture": "",
-                "title": "Notes for MECH 201",
-                "content": "Here are my notes for the midterm. Hope they help!",
-                "subject": "MECH201",
-                "images": [],
-                "likes": ["u1", "u3"],
-                "comments": ["c1"],
-                "created_at": "2025-10-18T14:30:00Z",
-                "updated_at": "2025-10-18T14:30:00Z"
-            },
-            {
-                "id": "saved3",
-                "user_id": "u3",
-                "username": "sarah_p",
-                "user_name": "Sarah P",
-                "user_bio": "Arts",
-                "user_campus": "Downtown",
-                "user_programme": "History",
-                "user_year": 4,
-                "user_picture": "",
-                "title": "Reminder: Club Fair tomorrow!",
-                "content": "Don't forget the club fair is happening tomorrow in the quad from 10am to 4pm. Come check out the History Club!",
-                "subject": "Events",
-                "images": [],
-                "likes": ["u1", "u2", "u4", "u5"],
-                "comments": [],
-                "created_at": "2025-10-23T09:00:00Z",
-                "updated_at": "2025-10-23T09:00:00Z"
+
+    @ViewBuilder
+    private func content(viewModel: SavedPostsViewModel) -> some View {
+        if viewModel.isLoading && viewModel.posts.isEmpty {
+            ProgressView("Loading saved posts...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let error = viewModel.error, viewModel.posts.isEmpty {
+            VStack(spacing: 16) {
+                Image(systemName: "bookmark.slash")
+                    .font(.system(size: 56))
+                    .foregroundStyle(.secondary)
+                Text("Couldn’t load saved posts")
+                    .font(.headline)
+                Text(error)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                Button("Retry") {
+                    Task {
+                        await viewModel.load()
+                    }
+                }
             }
-        ]
-        """
-        
-        guard let data = jsonString.data(using: .utf8) else { return [] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        
-        do {
-            return try decoder.decode([Post].self, from: data)
-        } catch {
-            print("Failed to decode placeholder posts: \(error)")
-            return []
+            .padding()
+        } else if viewModel.posts.isEmpty {
+            VStack(spacing: 16) {
+                Image(systemName: "bookmark")
+                    .font(.system(size: 56))
+                    .foregroundStyle(.secondary)
+                Text("No saved posts yet")
+                    .font(.headline)
+                Text("Bookmark posts from the feed and they’ll show up here.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding()
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 16) {
+                    ForEach(viewModel.posts) { post in
+                        NavigationLink(destination: PostDetailView(post: post)) {
+                            PostCard(
+                                post: post,
+                                currentUserId: currentUser?.id ?? "",
+                                isBookmarked: true,
+                                onLike: {},
+                                onComment: {},
+                                onBookmark: {
+                                    Task {
+                                        await viewModel.removeBookmark(postId: post.id)
+                                    }
+                                },
+                                onDelete: {},
+                                onReport: {}
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding()
+            }
+            .refreshable {
+                await viewModel.load()
+            }
         }
+    }
+}
+
+@MainActor
+@Observable
+class SavedPostsViewModel {
+    let userId: String
+
+    var posts: [Post] = []
+    var isLoading = false
+    var error: String?
+
+    init(userId: String) {
+        self.userId = userId
+    }
+
+    func load() async {
+        isLoading = true
+        error = nil
+
+        do {
+            let api = LinkioAPIService()
+            // Fetch bookmarked posts from backend (includes full post objects).
+            let loadedPosts = try await api.getUserBookmarks(userId: userId)
+            posts = loadedPosts
+
+            // Seed RealtimeManager so PostCard stat counts are accurate.
+            if !posts.isEmpty {
+                let rm = RealtimeManager.shared
+                rm.initializeCounts(posts: posts)
+                let ids = posts.map(\.id)
+                async let likes = api.getBatchLikeCounts(userId: userId, postIds: ids)
+                async let comments = api.getBatchCommentCounts(userId: userId, postIds: ids)
+                if let (l, c) = try? await (likes, comments) {
+                    rm.batchInitializeCounts(likeCounts: l, commentCounts: c, posts: posts)
+                }
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+
+        isLoading = false
+    }
+
+    func removeBookmark(postId: String) async {
+        do {
+            try await LinkioAPIService().deleteBookmark(postId: postId, userId: userId)
+        } catch {
+            print("[SavedPosts] ❌ Failed to remove bookmark: \(error.localizedDescription)")
+        }
+        posts.removeAll { $0.id == postId }
     }
 }
 

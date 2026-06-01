@@ -7,12 +7,43 @@
 
 import Foundation
 
+// MARK: - Chat Invite Event (Pusher payload)
+
+struct ChatInviteEvent: Identifiable, Decodable, Equatable {
+    var id: String { chatId }
+    let chatId: String
+    let chatName: String?
+    let inviterId: String
+    let inviterName: String
+
+    enum CodingKeys: String, CodingKey {
+        case chatId = "chat_id"
+        case chatName = "chat_name"
+        case inviterId = "inviter_id"
+        case inviterName = "inviter_name"
+    }
+}
+
 // MARK: - Chat
+
+struct ChatMetadata: Decodable {
+    let topic: String?
+    let chatType: String?
+    let isPrivate: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case topic
+        case chatType = "type"
+        case isPrivate = "is_private"
+    }
+}
 
 struct Chat: Decodable {
     let id: String
     let lastMessage: String?
     let lastMessageAt: Date?
+    let headerImage: String?
+    let metadata: ChatMetadata?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -22,12 +53,16 @@ struct Chat: Decodable {
         case timestamp
         case updatedAt = "updated_at"
         case createdAt = "created_at"
+        case headerImage = "header_image"
+        case metadata
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         lastMessage = try container.decodeIfPresent(String.self, forKey: .lastMessage)
+        headerImage = try container.decodeIfPresent(String.self, forKey: .headerImage)
+        metadata = try container.decodeIfPresent(ChatMetadata.self, forKey: .metadata)
 
         if let millis = try? container.decode(Int64.self, forKey: .lastMessageTimestamp) {
             lastMessageAt = Self.dateFromEpoch(millis)

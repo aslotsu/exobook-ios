@@ -35,9 +35,8 @@ struct PostCard: View {
                         .fontWeight(.semibold)
                 }
                 
-                // Content - strip HTML and show plain text
-                Text(post.content.htmlStripped)
-                    .font(.body)
+                Text(post.content.htmlAttributedString(fontSize: 17))
+                    .foregroundStyle(.primary)
                     .lineLimit(8)
                 
                 // Images grid
@@ -222,32 +221,6 @@ struct PostImagesGrid: View {
 }
 
 // MARK: - Preview
-
-// MARK: - String Extension
-
-extension String {
-    var htmlStripped: String {
-        // Simple HTML tag removal using regex - safe for any thread
-        var result = self
-        
-        // Remove HTML tags
-        result = result.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-        
-        // Decode common HTML entities
-        result = result.replacingOccurrences(of: "&nbsp;", with: " ")
-        result = result.replacingOccurrences(of: "&amp;", with: "&")
-        result = result.replacingOccurrences(of: "&lt;", with: "<")
-        result = result.replacingOccurrences(of: "&gt;", with: ">")
-        result = result.replacingOccurrences(of: "&quot;", with: "\"")
-        result = result.replacingOccurrences(of: "&#39;", with: "'")
-        result = result.replacingOccurrences(of: "&apos;", with: "'")
-        
-        // Trim whitespace
-        result = result.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        return result
-    }
-}
 
 // MARK: - Preview
 

@@ -8,10 +8,10 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>ca.exobook.Exobook</string>
+			<string>ca.linkio.Linkio</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>exobook</string>
+				<string>linkio</string>
 			</array>
 		</dict>
 	</array>

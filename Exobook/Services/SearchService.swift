@@ -47,28 +47,28 @@ class SearchService {
         // Query both endpoints concurrently using Typesense REST API
         async let usersTask: UsersSearchResponse? = {
             do {
-                let result: UsersSearchResponse = try await network.get(
+                let result: UsersSearchResponse = try await fetchTypesenseWithRetry(
                     "\(usersSearchURL)/collections/users/documents/search?q=\(encodedQuery)&query_by=username,name,bio,email&per_page=10",
                     headers: headers
                 )
                 print("✅ Users search successful: \(result.found) results")
                 return result
             } catch {
-                print("❌ Users search failed: \(error)")
+                print("⚠️ Users search unavailable: \(error)")
                 return nil
             }
         }()
         
         async let postsTask: PostsSearchResponse? = {
             do {
-                let result: PostsSearchResponse = try await network.get(
+                let result: PostsSearchResponse = try await fetchTypesenseWithRetry(
                     "\(postsSearchURL)/collections/posts/documents/search?q=\(encodedQuery)&query_by=title,content,subject&per_page=10",
                     headers: headers
                 )
                 print("✅ Posts search successful: \(result.found) results")
                 return result
             } catch {
-                print("❌ Posts search failed: \(error)")
+                print("⚠️ Posts search unavailable: \(error)")
                 return nil
             }
         }()
@@ -104,24 +104,105 @@ class SearchService {
             hits: allHits
         )
     }
+
+    private func fetchTypesenseWithRetry<T: Decodable>(
+        _ endpoint: String,
+        headers: [String: String]
+    ) async throws -> T {
+        do {
+            return try await network.get(endpoint, headers: headers)
+        } catch {
+            guard isTransientTypesenseError(error) else { throw error }
+            try await Task.sleep(for: .milliseconds(250))
+            return try await network.get(endpoint, headers: headers)
+        }
+    }
+
+    private func isTransientTypesenseError(_ error: Error) -> Bool {
+        guard let networkError = error as? NetworkError else { return false }
+        switch networkError {
+        case .httpError(let code):
+            return code == 503
+        case .serverError(let message):
+            return message.localizedCaseInsensitiveContains("Not Ready or Lagging")
+                || message.localizedCaseInsensitiveContains("503")
+        default:
+            return false
+        }
+    }
 }
 
 // Separate response types for each collection
-private struct UsersSearchResponse: Codable {
+private struct UsersSearchResponse: Decodable {
     let found: Int
     let outOf: Int
     let hits: [SearchHit]
+
+    enum CodingKeys: String, CodingKey {
+        case found
+        case outOf = "out_of"
+        case outOfCamel = "outOf"
+        case hits
+    }
+
+    init(found: Int, outOf: Int, hits: [SearchHit]) {
+        self.found = found
+        self.outOf = outOf
+        self.hits = hits
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        found = (try? container.decode(Int.self, forKey: .found)) ?? 0
+        hits = (try? container.decode([SearchHit].self, forKey: .hits)) ?? []
+
+        // Some Typesense responses omit out_of; fall back to found.
+        if let out = try? container.decode(Int.self, forKey: .outOf) {
+            outOf = out
+        } else if let outCamel = try? container.decode(Int.self, forKey: .outOfCamel) {
+            outOf = outCamel
+        } else {
+            outOf = found
+        }
+    }
 }
 
-private struct PostsSearchResponse: Codable {
+private struct PostsSearchResponse: Decodable {
     let found: Int
     let outOf: Int
     let hits: [SearchHit]
+
+    enum CodingKeys: String, CodingKey {
+        case found
+        case outOf = "out_of"
+        case outOfCamel = "outOf"
+        case hits
+    }
+
+    init(found: Int, outOf: Int, hits: [SearchHit]) {
+        self.found = found
+        self.outOf = outOf
+        self.hits = hits
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        found = (try? container.decode(Int.self, forKey: .found)) ?? 0
+        hits = (try? container.decode([SearchHit].self, forKey: .hits)) ?? []
+
+        if let out = try? container.decode(Int.self, forKey: .outOf) {
+            outOf = out
+        } else if let outCamel = try? container.decode(Int.self, forKey: .outOfCamel) {
+            outOf = outCamel
+        } else {
+            outOf = found
+        }
+    }
 }
 
 // MARK: - Models
 
-struct SearchResponse: Codable {
+struct SearchResponse: Decodable {
     let facetCounts: [FacetCount]
     let found: Int
     let outOf: Int
@@ -134,18 +215,56 @@ struct SearchResponse: Codable {
         case facetCounts = "facet_counts"
         case found
         case outOf = "out_of"
+        case outOfCamel = "outOf"
         case page
         case requestParams = "request_params"
         case searchTimeMs = "search_time_ms"
         case hits
     }
+
+    init(
+        facetCounts: [FacetCount],
+        found: Int,
+        outOf: Int,
+        page: Int,
+        requestParams: RequestParams,
+        searchTimeMs: Int,
+        hits: [SearchHit]
+    ) {
+        self.facetCounts = facetCounts
+        self.found = found
+        self.outOf = outOf
+        self.page = page
+        self.requestParams = requestParams
+        self.searchTimeMs = searchTimeMs
+        self.hits = hits
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        facetCounts = (try? container.decode([FacetCount].self, forKey: .facetCounts)) ?? []
+        found = (try? container.decode(Int.self, forKey: .found)) ?? 0
+        page = (try? container.decode(Int.self, forKey: .page)) ?? 1
+        requestParams = (try? container.decode(RequestParams.self, forKey: .requestParams))
+            ?? RequestParams(collectionName: "", perPage: 0, q: "")
+        searchTimeMs = (try? container.decode(Int.self, forKey: .searchTimeMs)) ?? 0
+        hits = (try? container.decode([SearchHit].self, forKey: .hits)) ?? []
+
+        if let out = try? container.decode(Int.self, forKey: .outOf) {
+            outOf = out
+        } else if let outCamel = try? container.decode(Int.self, forKey: .outOfCamel) {
+            outOf = outCamel
+        } else {
+            outOf = found
+        }
+    }
 }
 
-struct FacetCount: Codable {
+struct FacetCount: Decodable {
     // Add fields as needed
 }
 
-struct RequestParams: Codable {
+struct RequestParams: Decodable {
     let collectionName: String
     let perPage: Int
     let q: String
@@ -157,7 +276,7 @@ struct RequestParams: Codable {
     }
 }
 
-struct SearchHit: Codable, Identifiable {
+struct SearchHit: Decodable, Identifiable {
     let document: SearchDocument
     let highlights: [Highlight]?  // Array, not dictionary
     let textMatch: Int?
@@ -176,7 +295,7 @@ struct SearchHit: Codable, Identifiable {
     }
 }
 
-struct SearchDocument: Codable {
+struct SearchDocument: Decodable {
     let id: String
     // User document fields
     let name: String?
@@ -227,17 +346,7 @@ struct SearchDocument: Codable {
     }
     
     var avatarURL: URL? {
-        let pictureString = picture ?? userPicture ?? ""
-        if pictureString.starts(with: "http") {
-            return URL(string: pictureString)
-        }
-        if pictureString.starts(with: "/") {
-            return URL(string: "https://exobook.ca\(pictureString)")
-        }
-        if !pictureString.isEmpty {
-            return URL(string: "https://exobook.amazonaws.com/\(pictureString)")
-        }
-        return nil
+        resolveAvatarURL(picture ?? userPicture)
     }
     
     // Convert search document to Post for navigation
@@ -300,7 +409,7 @@ struct SearchDocument: Codable {
     }
 }
 
-struct Highlight: Codable {
+struct Highlight: Decodable {
     let field: String
     let snippet: String
     let matchedTokens: [String]?

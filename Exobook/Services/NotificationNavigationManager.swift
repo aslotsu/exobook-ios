@@ -37,7 +37,7 @@ class NotificationNavigationManager {
         case .profile:
             selectedTab = .profile
         case .notifications:
-            selectedTab = .notifications
+            selectedTab = .feed   // notifications shown via bell in feed top bar
         }
     }
 

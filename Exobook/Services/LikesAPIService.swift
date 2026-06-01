@@ -22,10 +22,10 @@ class LikesAPIService {
     // MARK: - Like Operations
 
     /// Like a post. Mirrors web likeManager: writes to DynamoDB and bumps the Redis counter in parallel.
-    func likePost(postId: String, userId: String) async throws -> EmptyResponse {
+    func likePost(postId: String, userId: String, owner: String, username: String, userPicture: String, userBio: String) async throws -> EmptyResponse {
         async let dynamo: EmptyResponse = network.post("\(baseURL)/api/likes/new", body: LikeRequest(
-            postId: postId,
-            userId: userId
+            postId: postId, userId: userId, owner: owner, username: username,
+            userPicture: userPicture, userBio: userBio, targetType: "post"
         ))
         async let redis: EmptyResponse = network.post("\(mainAPI)/api/redis/likes/\(postId)/\(userId)", body: EmptyLikeBody())
         let (result, _) = try await (dynamo, redis)
@@ -51,18 +51,24 @@ class LikesAPIService {
     }
     
     // MARK: - Comment/Reply Likes
-    
-    /// Like a comment
-    func likeComment(commentId: String, userId: String) async throws -> EmptyResponse {
-        try await network.post("\(baseURL)/api/likes/new/comment", body: LikeRequest(
-            postId: commentId,  // Using postId field for commentId
-            userId: userId
+
+    /// Like a reply/comment. Mirrors web replyLikesManager: writes to DynamoDB and bumps the Redis counter in parallel.
+    func likeComment(commentId: String, userId: String, owner: String, username: String, userPicture: String, userBio: String) async throws -> EmptyResponse {
+        async let dynamo: EmptyResponse = network.post("\(baseURL)/api/likes/new/comment", body: LikeRequest(
+            postId: commentId, userId: userId, owner: owner, username: username,
+            userPicture: userPicture, userBio: userBio, targetType: "comment"
         ))
+        async let redis: EmptyResponse = network.post("\(mainAPI)/api/redis/reply-likes/\(commentId)/\(userId)", body: EmptyLikeBody())
+        let (result, _) = try await (dynamo, redis)
+        return result
     }
-    
-    /// Unlike a comment
+
+    /// Unlike a reply/comment. Mirrors web replyLikesManager: removes from DynamoDB and decrements the Redis counter in parallel.
     func unlikeComment(commentId: String, userId: String) async throws -> EmptyResponse {
-        try await network.delete("\(baseURL)/api/likes/c/\(commentId)/\(userId)")
+        async let dynamo: EmptyResponse = network.delete("\(baseURL)/api/likes/c/\(commentId)/\(userId)")
+        async let redis: EmptyResponse = network.post("\(mainAPI)/api/redis/reply-likes/d/\(commentId)/\(userId)", body: EmptyLikeBody())
+        let (result, _) = try await (dynamo, redis)
+        return result
     }
     
 }
@@ -74,10 +80,20 @@ private struct EmptyLikeBody: Encodable {}
 struct LikeRequest: Encodable {
     let postId: String
     let userId: String
-    
+    let owner: String
+    let username: String
+    let userPicture: String
+    let userBio: String
+    let targetType: String
+
     enum CodingKeys: String, CodingKey {
         case postId = "post_id"
         case userId = "user_id"
+        case owner
+        case username
+        case userPicture = "user_picture"
+        case userBio = "user_bio"
+        case targetType = "target_type"
     }
 }
 
@@ -128,6 +144,11 @@ struct UserLikesResponse: Decodable {
                 self.likes = likes
                 return
             }
+            // Check for wrapped likes response: { "success": true, "data": { "likes": [...] } }
+            if let data = try? container.decode(LikesData.self, forKey: .data) {
+                self.likes = data.likes
+                return
+            }
             // Check for "data" key (common API pattern)
             if let data = try? container.decode([LikeItem].self, forKey: .data) {
                 self.likes = data
@@ -144,8 +165,12 @@ struct UserLikesResponse: Decodable {
         }
         
         // 3. Fallback: Return empty list instead of crashing, but log it
-        print("⚠️ UserLikesResponse: Failed to find 'likes', 'data' or root array. Defaulting to empty.")
+        print("⚠️ UserLikesResponse: Failed to find 'likes', 'data.likes', 'data' or root array. Defaulting to empty.")
         self.likes = []
+    }
+
+    private struct LikesData: Decodable {
+        let likes: [LikeItem]
     }
     
     // Add data key to CodingKeys to support the keyed decoding above

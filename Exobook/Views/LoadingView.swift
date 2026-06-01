@@ -56,7 +56,7 @@ struct LoadingView: View {
                         )
 
                     // App name
-                    Text("Exobook")
+                    Text("Linkio")
                         .font(.system(size: 42, weight: .bold, design: .rounded))
                         .foregroundStyle(
                             LinearGradient(

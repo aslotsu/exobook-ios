@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Observation
 import PhotosUI
+import os
 
 struct AttachedFile: Identifiable {
     let id = UUID()
@@ -13,146 +14,256 @@ struct AttachedFile: Identifiable {
 @MainActor
 @Observable
 class ChatViewModel {
-    // Dependencies
     private let chatService: ChatService
     private let chatId: String
-    private let api = ExobookAPIService()
+    private let api = LinkioAPIService()
+    private let readStateStore = ChatReadStateStore.shared
+    private let unreadAPI = UnreadAPIService()
     let currentUserId: String
 
-    // State
+    // Messages & pagination
     var messages: [Message] = []
+    var hasMoreMessages = false
+    var isLoadingOlder = false
+
+    // Compose
     var input: String = ""
     var isLoading = false
     var error: String?
-    
+
     // Attachments
     var selectedItems: [PhotosPickerItem] = []
     var selectedImages: [UIImage] = []
     var selectedFiles: [AttachedFile] = []
     var isUploading = false
-    
-    // Designated Initializer
+
+    // Typing
+    var typingUsers: [String] = []
+    private var typingTask: Task<Void, Never>?
+    private var isTyping = false
+
+    // Edit
+    var editingMessage: Message? = nil
+
     init(chatId: String, currentUserId: String, chatService: ChatService) {
         self.chatId = chatId
         self.currentUserId = currentUserId
         self.chatService = chatService
     }
-    
-    // Convenience Initializer
+
     convenience init(chat: ChatSummary, currentUserId: String) {
-        let service = ExobookChatService(currentUserId: currentUserId)
+        let service = LinkioChatService(currentUserId: currentUserId)
         self.init(chatId: chat.id, currentUserId: currentUserId, chatService: service)
     }
-    
-    // MARK: - Actions
-    
+
+    // MARK: - Load messages
+
     func loadMessages() async {
         isLoading = true
         error = nil
-        
         do {
-            let fetched = try await chatService.fetchMessages(chatId: chatId)
-            self.messages = fetched.sorted { $0.createdAt < $1.createdAt }
+            let (fetched, more) = try await chatService.fetchMessages(chatId: chatId)
+            messages = fetched.sorted { $0.createdAt < $1.createdAt }
+            hasMoreMessages = more
+            await syncReadState()
         } catch {
             self.error = error.localizedDescription
-            print("❌ Failed to load messages: \(error)")
         }
-        
         isLoading = false
     }
-    
-    func sendMessage() async {
-        let textToSend = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // Allow sending if there are attachments, even if text is empty
-        guard !textToSend.isEmpty || !selectedImages.isEmpty || !selectedFiles.isEmpty else { return }
-        guard !isUploading else { return }
-        
-        isUploading = true
-        
-        // Optimistic update (Text only, attachments harder to optimistically render without local IDs logic)
-        // We'll just show text for now in optimistic
-        if !textToSend.isEmpty {
-            let optimisticMessage = Message(
-                id: UUID().uuidString,
-                chatId: chatId,
-                senderId: currentUserId,
-                text: textToSend,
-                createdAt: Date(),
-                isMine: true,
-                images: nil,
-                files: nil
-            )
-            await appendMessage(optimisticMessage)
+
+    func loadOlderMessages() async {
+        guard !isLoadingOlder, hasMoreMessages, let oldest = messages.first else { return }
+        isLoadingOlder = true
+        do {
+            let (older, more) = try await chatService.fetchOlderMessages(chatId: chatId, before: oldest.createdAt, limit: 50)
+            let sorted = older.sorted { $0.createdAt < $1.createdAt }
+            messages.insert(contentsOf: sorted, at: 0)
+            hasMoreMessages = more
+        } catch {
+            Log.chat.error("Failed to load older messages: \(error)")
         }
-        // Clear input immediately
+        isLoadingOlder = false
+    }
+
+    // MARK: - Read state
+
+    private func syncReadState() async {
+        guard let lastMessage = messages.last else { return }
+        readStateStore.markRead(chatId: chatId, userId: currentUserId, at: lastMessage.createdAt)
+        try? await unreadAPI.markRead(userId: currentUserId, chatId: chatId, messageId: lastMessage.id)
+    }
+
+    // MARK: - Send
+
+    func sendMessage() async {
+        if let editing = editingMessage {
+            await commitEdit(editing)
+            return
+        }
+
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty || !selectedImages.isEmpty || !selectedFiles.isEmpty else { return }
+        guard !isUploading else { return }
+
+        isUploading = true
+        stopTyping()
+
+        if !text.isEmpty {
+            let optimistic = Message(id: UUID().uuidString, chatId: chatId, senderId: currentUserId,
+                                     text: text, createdAt: Date(), isMine: true, images: nil, files: nil)
+            await appendMessage(optimistic)
+        }
         input = ""
-        
+
         do {
             var imageIds: [String] = []
             var fileIds: [String] = []
-            
-            // 1. Upload Images
             if !selectedImages.isEmpty {
-                let imagesData = selectedImages.compactMap { $0.jpegData(compressionQuality: 0.8) }
-                if !imagesData.isEmpty {
-                    imageIds = try await api.uploadImages(imagesData)
-                }
+                let data = selectedImages.compactMap { $0.jpegData(compressionQuality: 0.8) }
+                imageIds = try await api.uploadImages(data)
             }
-            
-            // 2. Upload Files
             if !selectedFiles.isEmpty {
-                let uploadableFiles = selectedFiles.map { (data: $0.data, filename: $0.name, mimeType: "application/pdf") }
-                // Note: assuming PDF/doc for now, or could detect mime type from ext
-                if !uploadableFiles.isEmpty {
-                    fileIds = try await api.uploadFiles(uploadableFiles)
-                }
+                let uploadable = selectedFiles.map { (data: $0.data, filename: $0.name, mimeType: "application/pdf") }
+                fileIds = try await api.uploadFiles(uploadable)
             }
-            
-            // 3. Send Message
-            try await chatService.sendMessage(
-                chatId: chatId,
-                text: textToSend,
-                images: imageIds,
-                files: fileIds
-            )
-            
-            // Clear attachments
-            selectedImages = []
-            selectedItems = []
-            selectedFiles = []
-            
+            try await chatService.sendMessage(chatId: chatId, text: text, images: imageIds, files: fileIds)
+            selectedImages = []; selectedItems = []; selectedFiles = []
         } catch {
-            self.error = "Failed to send message: \(error.localizedDescription)"
-            print("❌ Failed to send message: \(error)")
+            self.error = "Failed to send: \(error.localizedDescription)"
         }
-        
+
         isUploading = false
     }
-    
-    func subscribeToRealtimeUpdates() async {
+
+    // MARK: - Edit
+
+    func beginEdit(_ message: Message) {
+        editingMessage = message
+        input = message.text
+    }
+
+    func cancelEdit() {
+        editingMessage = nil
+        input = ""
+    }
+
+    private func commitEdit(_ message: Message) async {
+        let newText = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newText.isEmpty else { cancelEdit(); return }
+        editingMessage = nil
+        input = ""
         do {
-            try await chatService.subscribeToMessages(chatId: chatId) { [weak self] newMessage in
-                Task { @MainActor [weak self] in
-                    await self?.appendMessage(newMessage)
-                }
+            try await chatService.editMessage(chatId: chatId, messageId: message.id, newText: newText)
+            if let idx = messages.firstIndex(where: { $0.id == message.id }) {
+                let updated = Message(id: message.id, chatId: message.chatId, senderId: message.senderId,
+                                      text: newText, createdAt: message.createdAt, isMine: message.isMine,
+                                      images: message.images, files: message.files)
+                messages[idx] = updated
             }
         } catch {
-            print("❌ Failed to subscribe to chat: \(error)")
+            self.error = "Failed to edit: \(error.localizedDescription)"
         }
     }
-    
+
+    // MARK: - Delete
+
+    func deleteMessage(_ message: Message) async {
+        do {
+            try await chatService.deleteMessage(chatId: chatId, messageId: message.id)
+            messages.removeAll { $0.id == message.id }
+        } catch {
+            self.error = "Failed to delete: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Typing
+
+    func handleInputChange() {
+        guard !input.isEmpty else {
+            stopTyping()
+            return
+        }
+        startTyping()
+    }
+
+    private func startTyping() {
+        typingTask?.cancel()
+        if !isTyping {
+            isTyping = true
+            Task { await postTypingEvent("user_typing") }
+        }
+        typingTask = Task {
+            try? await Task.sleep(for: .seconds(2.5))
+            if !Task.isCancelled { await MainActor.run { self.stopTyping() } }
+        }
+    }
+
+    func stopTyping() {
+        typingTask?.cancel()
+        typingTask = nil
+        guard isTyping else { return }
+        isTyping = false
+        Task { await postTypingEvent("user_stop_typing") }
+    }
+
+    private func postTypingEvent(_ type: String) async {
+        struct Body: Encodable {
+            let type: String
+            let chatId: String
+            let userId: String
+            enum CodingKeys: String, CodingKey {
+                case type
+                case chatId = "chat_id"
+                case userId = "user_id"
+            }
+        }
+        struct Resp: Decodable { let message: String? }
+        _ = try? await NetworkService.shared.post(
+            "\(APIConfig.chatAPI)/realtime",
+            body: Body(type: type, chatId: chatId, userId: currentUserId)
+        ) as Resp
+    }
+
+    // MARK: - Realtime
+
+    func subscribeToRealtimeUpdates() async {
+        do {
+            try await chatService.subscribeToMessages(chatId: chatId) { [weak self] msg in
+                Task { @MainActor [weak self] in await self?.appendMessage(msg) }
+            }
+        } catch {
+            Log.chat.error("Failed to subscribe to chat: \(error)")
+        }
+    }
+
+    func subscribeToTyping() {
+        // RealtimeManager publishes typing events on the same chat-{chatId} channel.
+        // We handle them via a dedicated publisher added below.
+    }
+
     func unsubscribe() {
+        stopTyping()
         chatService.unsubscribe(chatId: chatId)
     }
-    
+
     func appendMessage(_ message: Message) async {
         if let index = messages.firstIndex(where: { $0.id == message.id }) {
-            // Check if existing is missing attachments/content and update?
-            // Usually we just replace.
             messages[index] = message
         } else {
-             messages.append(message)
+            messages.append(message)
+        }
+        if !message.isMine {
+            readStateStore.markRead(chatId: chatId, userId: currentUserId, at: message.createdAt)
+            try? await unreadAPI.markRead(userId: currentUserId, chatId: chatId, messageId: message.id)
+        }
+    }
+
+    func handleTypingEvent(userId: String, isTyping: Bool) {
+        if isTyping {
+            if !typingUsers.contains(userId) { typingUsers.append(userId) }
+        } else {
+            typingUsers.removeAll { $0 == userId }
         }
     }
 }

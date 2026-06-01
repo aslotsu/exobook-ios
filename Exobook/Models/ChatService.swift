@@ -11,10 +11,13 @@ import Foundation
 @MainActor
 protocol ChatService {
     var currentUserId: String { get }
-    
+
     func fetchChats() async throws -> [ChatSummary]
-    func fetchMessages(chatId: String) async throws -> [Message]
+    func fetchMessages(chatId: String) async throws -> (messages: [Message], hasMore: Bool)
+    func fetchOlderMessages(chatId: String, before: Date, limit: Int) async throws -> (messages: [Message], hasMore: Bool)
     func sendMessage(chatId: String, text: String, images: [String]?, files: [String]?) async throws
+    func editMessage(chatId: String, messageId: String, newText: String) async throws
+    func deleteMessage(chatId: String, messageId: String) async throws
     func subscribeToMessages(chatId: String, onEvent: @escaping (Message) -> Void) async throws
     func unsubscribe(chatId: String)
 }

@@ -414,17 +414,7 @@ struct TypesenseSearchResultCard: View {
     }
     
     private var userAvatarURL: URL? {
-        let picture = document.userPicture
-        if picture.lowercased().hasSuffix(".svg") {
-            return nil
-        }
-        if picture.starts(with: "http") {
-            return URL(string: picture)
-        }
-        if picture.starts(with: "/") {
-            return URL(string: "https://exobook.ca\(picture)")
-        }
-        return URL(string: "https://exobook.s3.amazonaws.com/\(picture)")
+        resolveAvatarURL(document.userPicture)
     }
     
     private func highlightedText(_ text: String) -> AttributedString {
@@ -502,19 +492,7 @@ struct TypesenseUserResultCard: View {
     }
     
     private var avatarURL: URL? {
-        // Handle avatar URL similarly to SearchResultCard
-        let picture = document.picture ?? ""
-        if picture.isEmpty { return nil }
-        
-        if picture.lowercased().hasSuffix(".svg") { return nil }
-        
-        if picture.starts(with: "http") {
-            return URL(string: picture)
-        }
-        if picture.starts(with: "/") {
-            return URL(string: "https://exobook.ca\(picture)")
-        }
-        return URL(string: "https://exobook.s3.amazonaws.com/\(picture)")
+        resolveAvatarURL(document.picture)
     }
     
     private func highlightedText(_ text: String) -> AttributedString {

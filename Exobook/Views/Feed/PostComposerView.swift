@@ -9,65 +9,137 @@ import SwiftUI
 import PhotosUI
 
 struct PostComposerView: View {
+    private enum ComposerMode: String, CaseIterable, Identifiable {
+        case write = "Write"
+        case preview = "Preview"
+
+        var id: String { rawValue }
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.currentUser) private var currentUser
     @State private var title = ""
     @State private var content = ""
+    @State private var isAnonymous = false
     @State private var isPosting = false
     @State private var error: String?
     
     // Photo Picker State
     @State private var selectedItems: [PhotosPickerItem] = []
     @State private var selectedImages: [UIImage] = []
-    @State private var showingImagePicker = false
     
     // Course Selection State
     @State private var selectedCourse: String?
+    @State private var mode: ComposerMode = .write
     
     let viewModel: FeedViewModel
     
     var isValid: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        selectedCourse != nil
+    }
+
+    private var availableCourses: [String] {
+        viewModel.userCourses.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
     
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("New Post")
+                            .font(.title2.weight(.bold))
+                        Text("Share a question, update, or resource with your course feed.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
                     // Title input
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Title")
                             .font(.headline)
                         
-                        TextField("Descriptive title for your question", text: $title)
+                        TextField("Descriptive title for your question (optional)", text: $title)
                             .textFieldStyle(.roundedBorder)
                             .font(.body)
                     }
+
+                    Toggle(isOn: $isAnonymous) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Post anonymously")
+                                .font(.headline)
+                            Text("Your name and bio will not show on the post.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .toggleStyle(.switch)
                     
                     // Content input
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Content")
                             .font(.headline)
-                        
-                        TextEditor(text: $content)
-                            .frame(minHeight: 200)
-                            .padding(8)
-                            .background(Color(uiColor: .secondarySystemBackground))
-                            .cornerRadius(8)
-                            .font(.body)
+
+                        Picker("Composer Mode", selection: $mode) {
+                            ForEach(ComposerMode.allCases) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        formattingToolbar
+
+                        Group {
+                            switch mode {
+                            case .write:
+                                TextEditor(text: $content)
+                                    .frame(minHeight: 220)
+                                    .padding(8)
+                                    .background(Color(uiColor: .secondarySystemBackground))
+                                    .cornerRadius(8)
+                                    .font(.body)
+                            case .preview:
+                                ScrollView {
+                                    if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                        Text("Start writing to preview your formatted post.")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    } else {
+                                        Text(content.bridgedComposerHTML.htmlAttributedString(fontSize: 17))
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                                .frame(minHeight: 220)
+                                .padding(12)
+                                .background(Color(uiColor: .secondarySystemBackground))
+                                .cornerRadius(8)
+                            }
+                        }
+
+                        Text("Supports headings, lists, quotes, bold, italic, inline code, and links.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                     
                     // Photo Picker
                     PhotosPicker(selection: $selectedItems, maxSelectionCount: 4, matching: .images) {
-                        HStack {
-                            Image(systemName: "photo")
-                            Text("Add Images (up to 4)")
+                        HStack(spacing: 10) {
+                            Image(systemName: "photo.on.rectangle")
+                                .font(.system(size: 17, weight: .semibold))
+                            Text("Add images")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Text("\(selectedImages.count)/4")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity)
-                        .padding()
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
                         .background(Color(uiColor: .secondarySystemBackground))
-                        .cornerRadius(8)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .onChange(of: selectedItems) { oldItems, newItems in
@@ -103,28 +175,51 @@ struct PostComposerView: View {
                     
                     // Course Selection
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Select Course")
-                            .font(.headline)
+                        HStack {
+                            Text("Course")
+                                .font(.headline)
+
+                            Spacer()
+
+                            if let selectedCourse {
+                                Text(selectedCourse)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
                         
-                        if let userCourses = currentUser?.courseCodes, !userCourses.isEmpty {
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
-                                ForEach(userCourses, id: \.self) { course in
-                                    CourseChip(
-                                        title: course,
-                                        isSelected: selectedCourse == course,
-                                        action: {
-                                            selectedCourse = course
-                                        }
-                                    )
+                        if !availableCourses.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(availableCourses, id: \.self) { course in
+                                        CourseChip(
+                                            title: course,
+                                            isSelected: selectedCourse == course,
+                                            action: {
+                                                selectedCourse = course
+                                            }
+                                        )
+                                    }
                                 }
+                                .padding(.horizontal, 1)
+                                .padding(.vertical, 2)
                             }
                         } else {
-                            Text("No courses available")
+                            Text("No courses available yet.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
+
+                        if selectedCourse == nil {
+                            Text("Please select a course to categorize your post.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .padding(.vertical, 8)
+                    .padding(14)
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     
                     // Error message
                     if let error = error {
@@ -138,7 +233,7 @@ struct PostComposerView: View {
                 .padding()
             }
             .background(Color.appBackground)
-            .navigationTitle("New Post")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -161,10 +256,54 @@ struct PostComposerView: View {
             }
         }
     }
+
+    private var formattingToolbar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                formatButton("H1") { insertSnippet("# ") }
+                formatButton("H2") { insertSnippet("## ") }
+                formatButton("Bold") { insertSnippet("**bold**") }
+                formatButton("Italic") { insertSnippet("*italic*") }
+                formatButton("List") { insertSnippet("- ") }
+                formatButton("Quote") { insertSnippet("> ") }
+                formatButton("Code") { insertSnippet("`code`") }
+                formatButton("Link") { insertSnippet("[title](https://)") }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func formatButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color(uiColor: .tertiarySystemBackground))
+            .clipShape(Capsule())
+    }
+
+    private func insertSnippet(_ snippet: String) {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            content = snippet
+            return
+        }
+
+        if content.hasSuffix("\n") {
+            content += snippet
+        } else {
+            content += "\n\(snippet)"
+        }
+    }
     
     private func postQuestion() {
-        guard isValid, let user = currentUser else {
+        guard isValid, let user = currentUser, let selectedCourse else {
             print("❌ Post validation failed: isValid=\(isValid), currentUser=\(currentUser != nil)")
+            if self.selectedCourse == nil {
+                error = "Select a course before posting."
+            } else if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                error = "Content is required."
+            }
             return
         }
         
@@ -183,6 +322,7 @@ struct PostComposerView: View {
                     title: title,
                     content: content,
                     subject: selectedCourse,
+                    isAnonymous: isAnonymous,
                     images: imageData
                 )
                 
@@ -255,6 +395,7 @@ struct CourseChip: View {
                 }
                 Text(title)
                     .font(.subheadline)
+                    .lineLimit(1)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -272,10 +413,13 @@ struct CourseChip: View {
 #Preview {
     PostComposerView(
         viewModel: FeedViewModel(
-            userId: "test-user",
-            year: 2,
-            courses: ["CS101"],
-            campus: "Main Campus"
+            userId: User.mock.id,
+            userName: User.mock.name,
+            userPicture: User.mock.picture ?? "",
+            userBio: User.mock.bio ?? "",
+            year: User.mock.year ?? 1,
+            courses: User.mock.courseCodes,
+            campus: User.mock.campus ?? "Main Campus"
         )
     )
 }

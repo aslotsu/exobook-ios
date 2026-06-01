@@ -6,12 +6,17 @@
 //
 
 import SwiftUI
+import Combine
 
 struct FeedView: View {
     @Environment(\.currentUser) private var currentUser
     @State private var viewModel: FeedViewModel?
     @State private var showingComposer = false
     @State private var showingSearch = false
+    @State private var showingNotifications = false
+    @State private var unreadNotifCount = 0
+    @State private var notifSubscription: AnyCancellable?
+    private let notifAPI = NotificationsAPIService()
     
     var body: some View {
         Group {
@@ -30,14 +35,26 @@ struct FeedView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 16) {
-                    // Search button
-                    Button(action: { showingSearch = true }) {
+                    // Search
+                    Button { showingSearch = true } label: {
                         Image(systemName: "magnifyingglass")
                     }
-                    
-                    // Compose button
-                    Button(action: { showingComposer = true }) {
-                        Image(systemName: "square.and.pencil")
+                    // Notifications bell with badge
+                    Button { showingNotifications = true } label: {
+                        Image(systemName: unreadNotifCount > 0 ? "bell.badge.fill" : "bell")
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(unreadNotifCount > 0 ? Color.blue : Color.primary)
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        if unreadNotifCount > 0 {
+                            Text(unreadNotifCount > 99 ? "99+" : "\(unreadNotifCount)")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(3)
+                                .background(Color.red)
+                                .clipShape(Circle())
+                                .offset(x: 6, y: -6)
+                        }
                     }
                 }
             }
@@ -50,12 +67,38 @@ struct FeedView: View {
         .sheet(isPresented: $showingSearch) {
             SearchView(user: currentUser)
         }
+        .sheet(isPresented: $showingNotifications) {
+            NotificationsView()
+                .onDisappear { Task { await refreshNotifCount() } }
+        }
+        .task(id: currentUser?.id) {
+            await refreshNotifCount()
+            subscribeToNotifEvents()
+        }
+        .onChange(of: feedCourseSignature(for: currentUser), initial: false) { _, _ in
+            guard let user = currentUser else {
+                viewModel = nil
+                return
+            }
+            syncViewModel(for: user)
+        }
     }
     
     @ViewBuilder
     private func feedContent(viewModel: FeedViewModel) -> some View {
         VStack(spacing: 0) {
-            // Course filter section (fixed at top)
+            HStack {
+                Text("Linkio")
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+            .background(Color.appBackground)
+
             CourseFilterBar(viewModel: viewModel)
                 .background(Color.appBackground)
             
@@ -64,14 +107,6 @@ struct FeedView: View {
             // Scrollable content
             ScrollView {
                 LazyVStack(spacing: 16) {
-                    // Post composer button
-                    if let user = currentUser {
-                        PostComposerButton(firstName: user.name.components(separatedBy: " ").first ?? "there") {
-                            showingComposer = true
-                        }
-                        .padding(.horizontal)
-                    }
-                
                 // Loading state
                 if viewModel.isLoading && viewModel.posts.isEmpty {
                     ProgressView()
@@ -185,28 +220,103 @@ struct FeedView: View {
                 viewModel.subscribeToRealtimeUpdates()
             }
             .background(Color.appBackground)
+            .overlay(alignment: .bottomTrailing) {
+                composeFAB
+            }
         }
     }
 
-    private func initializeViewModel(for user: User) {
-        // Get user's enrolled course codes
-        var feedCourses = user.courseCodes
-        
-        // Only add general campus feed if it's not already in the list
-        let generalFeed = "General - \(user.campus ?? "Main Campus")"
-        if !feedCourses.contains(generalFeed) {
-            feedCourses.append(generalFeed)
+    private var composeFAB: some View {
+        Button {
+            showingComposer = true
+        } label: {
+            Image(systemName: "pencil")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 56, height: 56)
+                .background(Color.blue)
+                .clipShape(Circle())
+                .shadow(color: Color.blue.opacity(0.35), radius: 8, y: 4)
         }
+        .padding(.trailing, 20)
+        .padding(.bottom, 24)
+    }
+
+    private func refreshNotifCount() async {
+        guard let userId = currentUser?.id else { return }
+        if let count = try? await notifAPI.fetchUnreadCount(userId: userId) {
+            unreadNotifCount = count
+        }
+    }
+
+    private func subscribeToNotifEvents() {
+        guard notifSubscription == nil else { return }
+        notifSubscription = RealtimeManager.shared.newNotificationSubject
+            .receive(on: DispatchQueue.main)
+            .sink { _ in Task { @MainActor in await refreshNotifCount() } }
+    }
+
+    private func initializeViewModel(for user: User) {
+        let feedCourses = resolvedFeedCourses(for: user)
         
         // Debug: Print courses
         print("📚 User courses loaded: \(feedCourses)")
         
         viewModel = FeedViewModel(
             userId: user.id,
+            userName: user.name,
+            userPicture: user.picture ?? "",
+            userBio: user.bio ?? "",
             year: user.year ?? 1,
             courses: feedCourses,
             campus: user.campus ?? "Main Campus"
         )
+    }
+
+    private func syncViewModel(for user: User) {
+        guard let viewModel else {
+            initializeViewModel(for: user)
+            return
+        }
+
+        let feedCourses = resolvedFeedCourses(for: user)
+        guard viewModel.currentUserId == user.id else {
+            initializeViewModel(for: user)
+            return
+        }
+
+        guard viewModel.userCourses != feedCourses || viewModel.userYear != (user.year ?? 1) else {
+            return
+        }
+
+        viewModel.userName = user.name
+        viewModel.userPicture = user.picture ?? ""
+        viewModel.userBio = user.bio ?? ""
+        viewModel.userYear = user.year ?? 1
+        viewModel.userCampus = user.campus ?? "Main Campus"
+        viewModel.userCourses = feedCourses
+        viewModel.selectedCourses = feedCourses
+        viewModel.applyFilters()
+
+        print("📚 User courses refreshed: \(feedCourses)")
+
+        Task {
+            await viewModel.refreshFeed()
+        }
+    }
+
+    private func resolvedFeedCourses(for user: User) -> [String] {
+        let generalFeed = "General - \(user.campus ?? "Main Campus")"
+        return (user.courseCodes + [generalFeed]).reduce(into: [String]()) { courses, course in
+            let normalizedCourse = course.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedCourse.isEmpty, !courses.contains(normalizedCourse) else { return }
+            courses.append(normalizedCourse)
+        }
+    }
+
+    private func feedCourseSignature(for user: User?) -> String {
+        guard let user else { return "signed-out" }
+        return resolvedFeedCourses(for: user).joined(separator: "|") + "|year:\(user.year ?? 1)"
     }
 }
 
@@ -216,25 +326,7 @@ struct CourseFilterBar: View {
     @Bindable var viewModel: FeedViewModel
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Filter by Course")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                
-                Spacer()
-                
-                if viewModel.selectedCourses.count != viewModel.userCourses.count {
-                    Button(action: { viewModel.clearFilters() }) {
-                        Text("Clear")
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                    }
-                }
-            }
-            .padding(.horizontal)
-            
+        VStack(alignment: .leading, spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(viewModel.userCourses, id: \.self) { course in
@@ -250,7 +342,7 @@ struct CourseFilterBar: View {
                 .padding(.horizontal)
             }
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
     }
 }
 
@@ -268,6 +360,7 @@ struct CourseFilterChip: View {
                 }
                 Text(title)
                     .font(.subheadline)
+                    .lineLimit(1)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

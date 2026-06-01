@@ -20,6 +20,7 @@ struct ProfileView: View {
     @State private var showingEditProfile = false
     @State private var showingFriends = false
     @State private var showingFriendRequests = false
+    @State private var showingMeetings = false
     @State private var pendingRequestsCount = 0
     
     var body: some View {
@@ -40,6 +41,11 @@ struct ProfileView: View {
 
                     // Quick Actions (keep high so social actions are easy to find)
                     quickActionsSection
+
+                    Divider()
+                        .padding(.vertical, 16)
+
+                    accountDetailsSection(user: user)
 
                     Divider()
                         .padding(.vertical, 16)
@@ -100,6 +106,11 @@ struct ProfileView: View {
         .sheet(isPresented: $showingFriendRequests) {
             NavigationStack {
                 FriendRequestsInboxView()
+            }
+        }
+        .sheet(isPresented: $showingMeetings) {
+            NavigationStack {
+                MeetingsView()
             }
         }
         .task(id: currentUser?.id) {
@@ -220,6 +231,23 @@ struct ProfileView: View {
     }
     
     // MARK: - Academic Info
+
+    @ViewBuilder
+    private func accountDetailsSection(user: User) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Account")
+                .font(.headline)
+
+            InfoRow(icon: "envelope", title: "Email", value: user.email)
+            InfoRow(icon: "at", title: "Username", value: user.username.map { "@\($0)" } ?? "Not set")
+            InfoRow(icon: "globe", title: "Country", value: user.country ?? "Not set")
+            InfoRow(
+                icon: user.needsProfileSetup ? "exclamationmark.triangle" : "checkmark.seal",
+                title: "Profile Status",
+                value: user.needsProfileSetup ? "Needs attention" : "Complete"
+            )
+        }
+    }
     
     @ViewBuilder
     private func academicInfoSection(user: User) -> some View {
@@ -286,7 +314,9 @@ struct ProfileView: View {
                 badgeText: pendingRequestsCount > 0 ? "\(pendingRequestsCount)" : nil,
                 action: { showingFriendRequests = true }
             )
-            // Saved Posts and Liked Posts hidden until backend persistence lands (T1 follow-up).
+            ActionButton(icon: "calendar", title: "Meetings", action: { showingMeetings = true })
+            ActionButton(icon: "heart", title: "Liked Posts", action: { showingLikedPosts = true })
+            ActionButton(icon: "bookmark", title: "Saved Posts", action: { showingSavedPosts = true })
             ActionButton(icon: "arrow.right.circle", title: "Sign Out", color: .red, action: signOut)
         }
     }
@@ -378,35 +408,88 @@ struct ActionButton: View {
     }
 }
 
-// MARK: - Settings View Placeholder
+// MARK: - Settings View
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
-    
+    @Environment(\.currentUser) private var currentUser
+
+    @State private var showingDeleteConfirm = false
+    @State private var showingFinalConfirm = false
+    @State private var isDeleting = false
+    @State private var deleteError: String?
+
     var body: some View {
         NavigationStack {
             List {
                 Section("Account") {
-                    Text("Edit Profile")
-                    Text("Privacy Settings")
-                    Text("Notifications")
+                    Button(role: .destructive) {
+                        showingDeleteConfirm = true
+                    } label: {
+                        Label("Delete Account", systemImage: "person.crop.circle.badge.minus")
+                    }
+                    .disabled(isDeleting)
                 }
-                
+
+                if let err = deleteError {
+                    Section {
+                        Text(err).font(.caption).foregroundStyle(.red)
+                    }
+                }
+
                 Section("About") {
-                    Text("Terms of Service")
-                    Text("Privacy Policy")
-                    Text("About Exobook")
+                    LabeledContent("Version", value: Bundle.main.appVersion)
                 }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
+                ToolbarItem(placement: .confirmationAction) {
+                    if isDeleting {
+                        ProgressView()
+                    } else {
+                        Button("Done") { dismiss() }
                     }
                 }
             }
+            // First confirmation
+            .confirmationDialog(
+                "Delete your account?",
+                isPresented: $showingDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Continue", role: .destructive) { showingFinalConfirm = true }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Your posts, messages, and profile will be permanently removed. This cannot be undone.")
+            }
+            // Final confirmation
+            .alert("Are you absolutely sure?", isPresented: $showingFinalConfirm) {
+                Button("Delete My Account", role: .destructive) {
+                    Task { await deleteAccount() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Tap \"Delete My Account\" to permanently delete your account.")
+            }
         }
+    }
+
+    private func deleteAccount() async {
+        isDeleting = true
+        deleteError = nil
+        do {
+            try await AuthenticationManager.shared.deleteAccount()
+            dismiss()
+        } catch {
+            isDeleting = false
+            deleteError = error.localizedDescription
+        }
+    }
+}
+
+private extension Bundle {
+    var appVersion: String {
+        (infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
     }
 }

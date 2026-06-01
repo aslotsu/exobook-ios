@@ -17,6 +17,7 @@ struct UserProfileView: View {
     @State private var isRelationshipLoading = false
     @State private var isFriendActionLoading = false
     @State private var friendActionError: String?
+    @State private var mutualCount: Int? = nil
     
     var body: some View {
         ScrollView {
@@ -96,6 +97,12 @@ struct UserProfileView: View {
             }
 
             friendActionSection()
+
+            if let mutualCount, mutualCount > 0 {
+                Label("\(mutualCount) mutual friend\(mutualCount == 1 ? "" : "s")", systemImage: "person.2")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             if let friendActionError {
                 Text(friendActionError)
@@ -188,13 +195,15 @@ struct UserProfileView: View {
         isRelationshipLoading = true
         defer { isRelationshipLoading = false }
 
-        do {
-            let service = FriendsAPIService()
-            relationshipState = try await service.getRelationship(myId: currentUser.id, theirId: userId)
-        } catch {
+        let service = FriendsAPIService()
+        async let rel = service.getRelationship(myId: currentUser.id, theirId: userId)
+        async let mutual = service.getMutualFriends(userId: currentUser.id, otherId: userId)
+
+        do { relationshipState = try await rel } catch {
             relationshipState = .none
             friendActionError = "Unable to load friend status."
         }
+        mutualCount = (try? await mutual)?.count
     }
 
     private func sendFriendRequest(from fromId: String, to toId: String) async {
@@ -282,7 +291,7 @@ struct UserProfileView: View {
 @Observable
 class UserProfileViewModel {
     let userId: String
-    private let api = ExobookAPIService()
+    private let api = LinkioAPIService()
     
     var user: User?
     var posts: [Post] = []

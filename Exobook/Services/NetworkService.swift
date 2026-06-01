@@ -27,9 +27,12 @@ class NetworkService {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    /// Optional async provider that returns a Bearer token to attach to outgoing requests.
-    /// Set this from app startup; return nil to skip the header for a given call.
+    /// Returns the Supabase Bearer token for the Authorization header.
     var authTokenProvider: (() async -> String?)?
+
+    /// Returns the authenticated user ID for the X-Authenticated-User-ID header.
+    /// The chat backend falls back to this header when no JWT secret is configured.
+    var userIdProvider: (() -> String?)?
 
     private init() {
         let configuration = URLSessionConfiguration.default
@@ -40,14 +43,37 @@ class NetworkService {
         self.session = URLSession(configuration: configuration)
 
         self.decoder = JSONDecoder()
-        // Don't use .convertFromSnakeCase - it conflicts with custom CodingKeys
-        // Each model should define its own CodingKeys for snake_case mapping
-        self.decoder.dateDecodingStrategy = .iso8601
+        // Don't use .convertFromSnakeCase - it conflicts with custom CodingKeys.
+        // Go services may emit RFC3339 timestamps with or without fractional seconds.
+        self.decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let value = try container.decode(String.self)
+            if let date = NetworkService.iso8601WithFractionalSeconds.date(from: value)
+                ?? NetworkService.iso8601.date(from: value) {
+                return date
+            }
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Invalid ISO8601 date: \(value)"
+            )
+        }
 
         self.encoder = JSONEncoder()
         // Don't use .convertToSnakeCase - each model should define its own CodingKeys
         self.encoder.dateEncodingStrategy = .iso8601
     }
+
+    private static let iso8601WithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
     
     // MARK: - HTTP Methods
     
@@ -122,6 +148,11 @@ class NetworkService {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
+        if let uid = userIdProvider?() {
+            request.setValue(uid, forHTTPHeaderField: "X-Authenticated-User-ID")
+            request.setValue(uid, forHTTPHeaderField: "X-User-ID")
+        }
+
         Log.api.debug("UPLOAD \(endpoint, privacy: .public) (\(data.count, privacy: .public) bytes)")
 
         let (responseData, response) = try await session.data(for: request)
@@ -179,6 +210,11 @@ class NetworkService {
 
         if let provider = authTokenProvider, let token = await provider() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        if let uid = userIdProvider?() {
+            request.setValue(uid, forHTTPHeaderField: "X-Authenticated-User-ID")
+            request.setValue(uid, forHTTPHeaderField: "X-User-ID")
         }
 
         // Add body if present and not a GET request.

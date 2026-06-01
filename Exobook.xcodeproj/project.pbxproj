@@ -24,16 +24,16 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		08869E8C2EA82155003CD6D3 /* Exobook.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Exobook.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		08869E8C2EA82155003CD6D3 /* Linkio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Linkio.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		0828CA502EF3C24900742E60 /* Exceptions for "Exobook" folder in "Exobook" target */ = {
+		0828CA502EF3C24900742E60 /* Exceptions for "Exobook" folder in "Linkio" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = 08869E8B2EA82155003CD6D3 /* Exobook */;
+			target = 08869E8B2EA82155003CD6D3 /* Linkio */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -41,7 +41,7 @@
 		08869E8E2EA82155003CD6D3 /* Exobook */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				0828CA502EF3C24900742E60 /* Exceptions for "Exobook" folder in "Exobook" target */,
+				0828CA502EF3C24900742E60 /* Exceptions for "Exobook" folder in "Linkio" target */,
 			);
 			path = Exobook;
 			sourceTree = "<group>";
@@ -84,7 +84,7 @@
 		08869E8D2EA82155003CD6D3 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				08869E8C2EA82155003CD6D3 /* Exobook.app */,
+				08869E8C2EA82155003CD6D3 /* Linkio.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -92,9 +92,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		08869E8B2EA82155003CD6D3 /* Exobook */ = {
+		08869E8B2EA82155003CD6D3 /* Linkio */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 08869E972EA82157003CD6D3 /* Build configuration list for PBXNativeTarget "Exobook" */;
+			buildConfigurationList = 08869E972EA82157003CD6D3 /* Build configuration list for PBXNativeTarget "Linkio" */;
 			buildPhases = (
 				08869E882EA82155003CD6D3 /* Sources */,
 				08869E892EA82155003CD6D3 /* Frameworks */,
@@ -107,7 +107,7 @@
 			fileSystemSynchronizedGroups = (
 				08869E8E2EA82155003CD6D3 /* Exobook */,
 			);
-			name = Exobook;
+			name = Linkio;
 			packageProductDependencies = (
 				08869E9B2EA823C2003CD6D3 /* SDWebImageSwiftUI */,
 				08869EAC2EA82A88003CD6D3 /* Auth */,
@@ -124,8 +124,8 @@
 				08D34C3F2EEF4FEB004E2F61 /* FirebaseAnalyticsIdentitySupport */,
 				08D34C422EEF4FEB004E2F62 /* FirebaseMessaging */,
 			);
-			productName = Exobook;
-			productReference = 08869E8C2EA82155003CD6D3 /* Exobook.app */;
+			productName = Linkio;
+			productReference = 08869E8C2EA82155003CD6D3 /* Linkio.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -164,7 +164,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				08869E8B2EA82155003CD6D3 /* Exobook */,
+				08869E8B2EA82155003CD6D3 /* Linkio */,
 			);
 		};
 /* End PBXProject section */
@@ -321,7 +321,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Exobook/Info.plist;
-				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLName = \"ca.exobook.Exobook\";\n    CFBundleURLSchemes =     (\n        exobook\n    );\n}";
+				INFOPLIST_KEY_CFBundleDisplayName = Linkio;
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLName = \"ca.linkio.Linkio\";\n    CFBundleURLSchemes =     (\n        linkio\n    );\n}";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -332,7 +333,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = ca.exobook.Exobook;
+				PRODUCT_BUNDLE_IDENTIFIER = ca.linkio.Linkio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -356,7 +357,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Exobook/Info.plist;
-				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLName = \"ca.exobook.Exobook\";\n    CFBundleURLSchemes =     (\n        exobook\n    );\n}";
+				INFOPLIST_KEY_CFBundleDisplayName = Linkio;
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLName = \"ca.linkio.Linkio\";\n    CFBundleURLSchemes =     (\n        linkio\n    );\n}";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -367,7 +369,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = ca.exobook.Exobook;
+				PRODUCT_BUNDLE_IDENTIFIER = ca.linkio.Linkio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -391,7 +393,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		08869E972EA82157003CD6D3 /* Build configuration list for PBXNativeTarget "Exobook" */ = {
+		08869E972EA82157003CD6D3 /* Build configuration list for PBXNativeTarget "Linkio" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				08869E982EA82157003CD6D3 /* Debug */,

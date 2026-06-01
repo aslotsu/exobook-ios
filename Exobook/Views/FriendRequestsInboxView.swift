@@ -12,7 +12,7 @@ struct FriendRequestsInboxView: View {
     @Environment(\.currentUser) private var currentUser
 
     private let friendsAPI = FriendsAPIService()
-    private let exobookAPI = ExobookAPIService()
+    private let linkioAPI = LinkioAPIService()
 
     @State private var pendingRequests: [FriendRequest] = []
     @State private var userProfiles: [String: User] = [:]
@@ -153,7 +153,7 @@ struct FriendRequestsInboxView: View {
         var nextProfiles = userProfiles
 
         for userId in uniqueIds where nextProfiles[userId] == nil {
-            if let user = try? await exobookAPI.getUser(id: userId) {
+            if let user = try? await linkioAPI.getUser(id: userId) {
                 nextProfiles[userId] = user
             }
         }

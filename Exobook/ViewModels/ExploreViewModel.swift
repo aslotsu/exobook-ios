@@ -13,7 +13,7 @@ import Combine
 @Observable
 class ExploreViewModel {
     private let searchService = SearchService()
-    private let exobookAPI = ExobookAPIService()
+    private let linkioAPI = LinkioAPIService()
     
     // User context
     let userId: String
@@ -124,8 +124,20 @@ class ExploreViewModel {
                 id: userId
             )
 
-            let response = try await exobookAPI.getAllPosts(request: request)
+            let response = try await linkioAPI.getAllPosts(request: request)
             recommendedPosts = response.posts
+
+            // Seed counts into RealtimeManager so PostCards show correct stats.
+            if !recommendedPosts.isEmpty {
+                let rm = RealtimeManager.shared
+                rm.initializeCounts(posts: recommendedPosts)
+                let ids = recommendedPosts.map(\.id)
+                async let likes = linkioAPI.getBatchLikeCounts(userId: userId, postIds: ids)
+                async let comments = linkioAPI.getBatchCommentCounts(userId: userId, postIds: ids)
+                if let (l, c) = try? await (likes, comments) {
+                    rm.batchInitializeCounts(likeCounts: l, commentCounts: c, posts: recommendedPosts)
+                }
+            }
         } catch {
             print("Failed to load recommended posts: \(error)")
         }

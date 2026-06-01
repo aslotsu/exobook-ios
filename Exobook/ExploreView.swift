@@ -201,6 +201,39 @@ struct ExploreView: View {
             Text("Recommended for you")
                 .font(.title2)
                 .fontWeight(.bold)
+
+            if currentUser != nil {
+                NavigationLink {
+                    MeetingsView()
+                } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: "calendar.badge.clock")
+                            .font(.title2)
+                            .foregroundColor(.white)
+                            .padding(12)
+                            .background(Color.blue)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Course Meetings")
+                                .font(.headline)
+                                .foregroundColor(.primary)
+                            Text("See upcoming study sessions, RSVP, or host one for your classes.")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.secondary)
+                    }
+                    .padding()
+                    .background(Color(uiColor: .secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                }
+                .buttonStyle(.plain)
+            }
             
             if viewModel.isLoadingRecommended {
                 ProgressView()

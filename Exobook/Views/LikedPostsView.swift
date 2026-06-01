@@ -267,7 +267,7 @@ struct LikedPostCard: View {
         }
         
         do {
-            let api = ExobookAPIService()
+            let api = LinkioAPIService()
             let loadedPost = try await api.getPost(id: like.postId)
             let duration = Date().timeIntervalSince(startTime)
             print("✅ Loaded post: \(like.postId) in \(String(format: "%.2f", duration))s")
@@ -337,7 +337,7 @@ struct PostHeaderFromLike: View {
 @Observable
 class LikedPostsViewModel {
     let userId: String
-    private let api = ExobookAPIService()
+    private let api = LinkioAPIService()
     
     var likedPosts: [LikedPost] = []
     var isLoading = false
