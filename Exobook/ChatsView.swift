@@ -8,42 +8,24 @@
 import SwiftUI
 
 struct ChatsView: View {
-    @State private var chatService: ChatService = MockChatService()
-    @State private var serviceMode: ServiceMode = .mock
-    
-    enum ServiceMode: String, CaseIterable {
-        case mock = "Mock"
-        case supabase = "Supabase"
-        case dynamoDB = "DynamoDB"
-    }
+    @Environment(\.currentUser) private var currentUser
+    @State private var chatService: ChatService?
     
     var body: some View {
-        NavigationStack {
-            ChatsListView(service: chatService)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Menu(serviceMode.rawValue) {
-                            ForEach(ServiceMode.allCases, id: \.self) { mode in
-                                Button(mode.rawValue) {
-                                    switchService(to: mode)
-                                }
-                            }
-                        }
-                        .font(.caption)
-                    }
+        Group {
+            if let chatService = chatService {
+                ChatsListView(service: chatService)
+            } else if let user = currentUser {
+                Color.clear.onAppear {
+                    initializeChatService(for: user)
                 }
+            } else {
+                Text("User not found")
+            }
         }
     }
     
-    private func switchService(to mode: ServiceMode) {
-        serviceMode = mode
-        switch mode {
-        case .mock:
-            chatService = MockChatService()
-        case .supabase:
-            chatService = SupabaseChatService()
-        case .dynamoDB:
-            chatService = DynamoDBChatService()
-        }
+    private func initializeChatService(for user: User) {
+        chatService = ExobookChatService(currentUserId: user.id)
     }
 }

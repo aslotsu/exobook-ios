@@ -14,6 +14,7 @@ struct User: Codable, Identifiable {
     let username: String?
     let bio: String?
     let picture: String?
+    let country: String?
     let campus: String?
     let program: String?  // Backend uses 'program' not 'programme'
     let year: Int?
@@ -30,9 +31,9 @@ struct User: Codable, Identifiable {
         if picture.starts(with: "http") {
             return URL(string: picture)
         }
-        // If path starts with /, it's a static asset from exobook.ca
+        // If path starts with /, it's a static asset from linkio.ca
         if picture.starts(with: "/") {
-            return URL(string: "https://exobook.ca\(picture)")
+            return URL(string: "https://linkio.ca\(picture)")
         }
         // Otherwise it's from S3
         return URL(string: "https://exobook.s3.amazonaws.com/\(picture)")
@@ -53,6 +54,7 @@ struct User: Codable, Identifiable {
         case username
         case bio
         case picture
+        case country
         case campus
         case program
         case year
@@ -83,11 +85,12 @@ struct UserCourse: Codable, Identifiable {
 extension User {
     static let mock = User(
         id: "test-user-id",
-        email: "test@exobook.ca",
+        email: "test@linkio.ca",
         name: "Test User",
         username: "testuser",
         bio: "Test bio",
         picture: nil,
+        country: nil,
         campus: "Main Campus",
         program: "Computer Science",
         year: 2,

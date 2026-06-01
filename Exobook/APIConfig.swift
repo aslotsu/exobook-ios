@@ -9,14 +9,14 @@ import Foundation
 
 enum APIConfig {
     // Base URLs for different services
-    static let baseAPI = "https://api.exobook.ca"        // exo-be (Go backend with Postgres)
-    static let likesAPI = "https://likes.exobook.ca"     // dynamodb-go-api (DynamoDB likes service)
-    static let usersSearchAPI = "https://users2.exobook.ca"   // Typesense users collection
-    static let postsSearchAPI = "https://posts2.exobook.ca"   // Typesense posts collection
-    static let chatAPI = "https://chats.exobook.ca"      // DynamoDB Chat Service (was localhost:9100)
+    static let baseAPI = "https://api.linkio.ca"        // exo-be (Go backend with Postgres)
+    static let likesAPI = "https://likes.linkio.ca"     // dynamodb-go-api (DynamoDB likes service)
+    static let usersSearchAPI = "https://users2.linkio.ca"   // Typesense users collection
+    static let postsSearchAPI = "https://posts2.linkio.ca"   // Typesense posts collection
+    static let chatAPI = "https://chats.linkio.ca"      // DynamoDB Chat Service (prod)
     
     // Add new APIs here as needed
-    // static let newServiceAPI = "https://newservice.exobook.ca"
+    // static let newServiceAPI = "https://newservice.linkio.ca"
     
     // Helper method to construct full URLs
     static func url(for service: APIService, endpoint: String) -> URL? {

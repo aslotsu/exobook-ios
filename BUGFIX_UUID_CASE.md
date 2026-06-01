@@ -18,11 +18,11 @@ This error was misleading. The actual issue was:
 API test results:
 ```bash
 # Uppercase UUID - FAILS
-curl https://api.exobook.ca/api/users/380A5369-6266-4A2D-940C-88CB499DC44C
+curl https://api.linkio.ca/api/users/380A5369-6266-4A2D-940C-88CB499DC44C
 # Returns: HTTP 400, null
 
 # Lowercase UUID - WORKS
-curl https://api.exobook.ca/api/users/380a5369-6266-4a2d-940c-88cb499dc44c
+curl https://api.linkio.ca/api/users/380a5369-6266-4a2d-940c-88cb499dc44c
 # Returns: HTTP 200, full user JSON
 ```
 

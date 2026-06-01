@@ -14,6 +14,8 @@ struct ChatsListView: View {
     @State private var error: String?
     let service: ChatService
 
+    @State private var showingNewChat = false
+
     var body: some View {
         List {
             ForEach(chats) { chat in
@@ -26,19 +28,63 @@ struct ChatsListView: View {
         .background(adaptiveBackground)
         .navigationTitle("Chats")
         .navigationDestination(for: ChatSummary.self) { chat in
-            ChatThreadView(chat: chat, service: service)
+            ChatThreadView(chat: chat, service: service, currentUserId: service.currentUserId)
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showingNewChat = true }) {
+                    Image(systemName: "square.and.pencil")
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $showingNewChat) {
+            NewChatView(service: service)
         }
         .refreshable { await load() }
         .task { await load() }
         .overlay {
-            if isLoading && chats.isEmpty { ProgressView() }
-            if let error, chats.isEmpty {
+            if isLoading && chats.isEmpty {
+                ProgressView()
+            } else if chats.isEmpty && !isLoading {
+                emptyState
+            } else if let error, chats.isEmpty {
                 VStack(spacing: 8) {
                     Text("Failed to load chats").font(.headline)
                     Text(error).font(.footnote).foregroundStyle(.secondary)
                 }.padding()
             }
         }
+        .overlay(alignment: .top) {
+            RealtimeBanner()
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.system(size: 60))
+                .foregroundColor(.secondary)
+
+            Text("No Chats Yet")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            Text("Start a conversation with someone!")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+
+            Button(action: { showingNewChat = true }) {
+                Label("New Chat", systemImage: "square.and.pencil")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(Color.blue)
+                    .cornerRadius(10)
+            }
+        }
+        .padding()
     }
 
     private func load() async {
@@ -50,9 +96,9 @@ struct ChatsListView: View {
             self.error = error.localizedDescription
         }
     }
-    
+
     @Environment(\.colorScheme) private var colorScheme
-    
+
     private var adaptiveBackground: Color {
         colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
     }

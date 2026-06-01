@@ -11,16 +11,28 @@ import SwiftUI
 struct ChatThreadView: View {
     let chat: ChatSummary
     let service: ChatService
+    let currentUserId: String
 
     @State private var messages: [Message] = []
     @State private var input: String = ""
     @State private var isLoading = false
     @State private var error: String?
     @State private var keyboardPadding: CGFloat = 0
+    @State private var typingUsers: Set<String> = []
 
     var body: some View {
         VStack(spacing: 0) {
             MessageList(messages: messages)
+            if !typingUsers.isEmpty {
+                HStack {
+                    Text("Typing…")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 4)
+            }
             Divider()
             inputBar
                 .padding(.horizontal)
@@ -40,12 +52,30 @@ struct ChatThreadView: View {
             try? await service.subscribeToMessages(chatId: chat.id) { new in
                 Task { await appendMessage(new) }
             }
+            do {
+                try service.subscribeToTyping(
+                    chatId: chat.id,
+                    onTypingStart: { userId, _ in
+                        if userId != currentUserId { typingUsers.insert(userId) }
+                    },
+                    onTypingStop: { userId in
+                        typingUsers.remove(userId)
+                    }
+                )
+            } catch {
+                // ignore for now
+            }
+            // Mark chat as read on open
+            try? await service.markChatRead(chatId: chat.id)
         }
         .onDisappear {
             service.unsubscribe(chatId: chat.id)
         }
         .overlay {
             if isLoading && messages.isEmpty { ProgressView() }
+        }
+        .overlay(alignment: .top) {
+            RealtimeBanner()
         }
         .safeAreaInset(edge: .bottom) { Color.clear.frame(height: keyboardPadding) }
     }
@@ -80,7 +110,25 @@ struct ChatThreadView: View {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         input = ""
-        try? await service.sendMessage(chatId: chat.id, text: text)
+
+        // Optimistically add message to UI
+        let optimisticMessage = Message(
+            id: "",
+            chatId: chat.id,
+            senderId: currentUserId ,
+            text: text,
+            createdAt: Date(),
+            isMine: true
+        )
+        await appendMessage(optimisticMessage)
+
+        // Send to backend
+        do {
+            try await service.sendMessage(chatId: chat.id, text: text)
+        } catch {
+            print("❌ Failed to send message: \(error)")
+            // TODO: Handle error - maybe show retry UI or remove optimistic message
+        }
     }
 
     @MainActor
@@ -105,9 +153,9 @@ struct ChatThreadView: View {
             }
         }
     }
-    
+
     @Environment(\.colorScheme) private var colorScheme
-    
+
     private var adaptiveBackground: Color {
         colorScheme == .dark ? Color(red: 24/255, green: 24/255, blue: 27/255) : Color(uiColor: .systemBackground)
     }

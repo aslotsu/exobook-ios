@@ -210,7 +210,7 @@ struct SearchDocument: Codable {
             return URL(string: pictureString)
         }
         if pictureString.starts(with: "/") {
-            return URL(string: "https://exobook.ca\(pictureString)")
+            return URL(string: "https://linkio.ca\(pictureString)")
         }
         if !pictureString.isEmpty {
             return URL(string: "https://exobook.s3.amazonaws.com/\(pictureString)")

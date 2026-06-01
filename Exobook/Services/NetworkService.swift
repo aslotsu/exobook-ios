@@ -21,10 +21,24 @@ enum NetworkError: Error {
 @MainActor
 class NetworkService {
     static let shared = NetworkService()
+
+    private static let iso8601WithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601WithoutFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
     
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
+    private var authenticatedUserID: String?
+    private var bearerToken: String?
     
     private init() {
         let configuration = URLSessionConfiguration.default
@@ -36,11 +50,32 @@ class NetworkService {
         
         self.decoder = JSONDecoder()
         self.decoder.keyDecodingStrategy = .convertFromSnakeCase
-        self.decoder.dateDecodingStrategy = .iso8601
+        self.decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let value = try container.decode(String.self)
+
+            if let date = Self.iso8601WithFractionalSeconds.date(from: value) ??
+                Self.iso8601WithoutFractionalSeconds.date(from: value) {
+                return date
+            }
+
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Invalid ISO-8601 date: \(value)"
+            )
+        }
         
         self.encoder = JSONEncoder()
         self.encoder.keyEncodingStrategy = .convertToSnakeCase
         self.encoder.dateEncodingStrategy = .iso8601
+    }
+
+    func setAuthenticatedUserID(_ userID: String?) {
+        authenticatedUserID = userID?.lowercased()
+    }
+
+    func setBearerToken(_ token: String?) {
+        bearerToken = token
     }
     
     // MARK: - HTTP Methods
@@ -103,6 +138,14 @@ class NetworkService {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        if let authenticatedUserID, !authenticatedUserID.isEmpty {
+            request.setValue(authenticatedUserID, forHTTPHeaderField: "X-Authenticated-User-ID")
+        }
+
+        if let bearerToken, !bearerToken.isEmpty {
+            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        }
         
         // Add custom headers
         headers?.forEach { key, value in

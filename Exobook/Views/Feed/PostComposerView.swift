@@ -11,14 +11,25 @@ struct PostComposerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var content = ""
+    @State private var selectedCourse = ""
     @State private var isPosting = false
     @State private var error: String?
     
     let viewModel: FeedViewModel
+
+    private var availableCourses: [String] {
+        var courses = viewModel.userCourses
+        let generalCourse = "General - \(viewModel.userCampus)"
+        if !courses.contains(generalCourse) {
+            courses.append(generalCourse)
+        }
+        return courses
+    }
     
     var isValid: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !selectedCourse.isEmpty
     }
     
     var body: some View {
@@ -46,6 +57,22 @@ struct PostComposerView: View {
                             .background(Color(uiColor: .secondarySystemBackground))
                             .cornerRadius(8)
                             .font(.body)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Course")
+                            .font(.headline)
+
+                        Picker("Course", selection: $selectedCourse) {
+                            ForEach(availableCourses, id: \.self) { course in
+                                Text(course).tag(course)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .cornerRadius(8)
                     }
                     
                     // Image picker placeholder
@@ -78,6 +105,11 @@ struct PostComposerView: View {
             .background(adaptiveBackground)
             .navigationTitle("New Post")
             .navigationBarTitleDisplayMode(.inline)
+            .task {
+                if selectedCourse.isEmpty {
+                    selectedCourse = availableCourses.first ?? ""
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
@@ -117,6 +149,7 @@ struct PostComposerView: View {
                 try await viewModel.createPost(
                     title: title,
                     content: content,
+                    subject: selectedCourse,
                     images: []
                 )
                 

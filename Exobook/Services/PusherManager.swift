@@ -20,9 +20,9 @@ final class PusherManager: NSObject, PusherDelegate {
     override init() {
         super.init()
 
-        // Replace with your actual key & cluster, e.g. "mt1", "eu", "us2", etc.
-        let options = PusherClientOptions(host: .cluster("YOUR_CLUSTER"))
-        pusher = Pusher(key: "YOUR_KEY", options: options)
+        // Centralized Pusher configuration
+        let options = PusherClientOptions(host: .cluster(PusherConfig.cluster))
+        pusher = Pusher(key: PusherConfig.key, options: options)
 
         // Optional logging during dev
         pusher.connection.delegate = self

@@ -120,7 +120,7 @@ Redirect to App (exobook://)
      ↓ [Token exchange]
 Supabase Auth ✓
      ↓ [Load user data]
-Backend API (api.exobook.ca)
+Backend API (api.linkio.ca)
      ↓ [User data loaded]
 Main App Screen ✓
 ```

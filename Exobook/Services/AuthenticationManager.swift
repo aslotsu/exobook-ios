@@ -26,6 +26,8 @@ class AuthenticationManager {
     // Session
     private var session: Session? {
         didSet {
+            NetworkService.shared.setAuthenticatedUserID(session?.user.id.uuidString.lowercased())
+            NetworkService.shared.setBearerToken(session?.accessToken)
             Task {
                 if let session = session {
                     await loadUserData(userId: session.user.id.uuidString)
@@ -108,18 +110,6 @@ class AuthenticationManager {
                 password: password
             )
             
-            // Convert UUID to lowercase for backend API compatibility
-            let userId = response.user.id.uuidString.lowercased()
-            
-            // Create user in your backend
-            let createUserRequest = CreateUserRequest(
-                id: userId,
-                email: email,
-                name: name
-            )
-            
-            _ = try await exobookAPI.createUser(createUserRequest)
-            
             session = response.session
         } catch {
             self.error = error.localizedDescription
@@ -157,7 +147,7 @@ class AuthenticationManager {
     
     // MARK: - User Data
     
-    private func loadUserData(userId: String) async {
+    private func loadUserData(userId: String, allowBootstrap: Bool = true) async {
         do {
             // Convert UUID to lowercase for backend API compatibility
             let lowercaseUserId = userId.lowercased()
@@ -200,6 +190,7 @@ class AuthenticationManager {
                     username: user.username,
                     bio: user.bio,
                     picture: user.picture,
+                    country: user.country,
                     campus: user.campus,
                     program: user.program,
                     year: user.year,
@@ -213,6 +204,19 @@ class AuthenticationManager {
             print("🔍 Final user courses: \(user.courses?.count ?? 0) courses")
             print("🔍 Course codes: \(user.courseCodes)")
         } catch {
+            if allowBootstrap,
+               let session,
+               session.user.id.uuidString.lowercased() == userId.lowercased(),
+               shouldBootstrapProfile(for: error) {
+                do {
+                    try await bootstrapBackendUser(for: session)
+                    await loadUserData(userId: userId, allowBootstrap: false)
+                    return
+                } catch {
+                    print("Failed to bootstrap backend user: \(error)")
+                }
+            }
+
             print("Failed to load user data: \(error)")
             // Use basic user info from Supabase session as fallback
             if let session = session {
@@ -223,6 +227,7 @@ class AuthenticationManager {
                     username: nil,
                     bio: nil,
                     picture: nil,
+                    country: nil,
                     campus: nil,
                     program: nil,
                     year: nil,
@@ -237,6 +242,27 @@ class AuthenticationManager {
     func refreshUserData() async {
         guard let userId = currentUser?.id else { return }
         await loadUserData(userId: userId)
+    }
+
+    private func shouldBootstrapProfile(for error: Error) -> Bool {
+        switch error {
+        case NetworkError.httpError(let statusCode):
+            return statusCode == 400 || statusCode == 404
+        default:
+            return false
+        }
+    }
+
+    private func bootstrapBackendUser(for session: Session) async throws {
+        let email = session.user.email ?? ""
+        let fallbackName = email.split(separator: "@").first.map(String.init) ?? "User"
+        let request = CreateUserRequest(
+            id: session.user.id.uuidString.lowercased(),
+            email: email,
+            name: fallbackName
+        )
+
+        _ = try await exobookAPI.createUser(request)
     }
 }
 

@@ -120,7 +120,18 @@ final class RealtimeManager {
                 self.handlePostDeleted(data)
             }
         }
-        
+
+        // Chat notifications: new messages to this user
+        userChatChannel?.bind(eventName: "new-message") { [weak self] data in
+            guard let self = self else { return }
+            Task { @MainActor in
+                guard let dict = data as? [String: Any] else { return }
+                let from = (dict["username"] as? String) ?? "New message"
+                let words = (dict["words"] as? String) ?? ""
+                self.showNotification(title: from, body: words)
+            }
+        }
+
         print("✅ Pusher event handlers configured")
     }
     
@@ -328,16 +339,7 @@ final class RealtimeManager {
         print("📊 Batch initialized counts: \(likeCounts.count) likes, \(commentCounts.count) comments")
     }
     
-    // MARK: - Notifications
     
-    private func showNotification(title: String, body: String) {
-        // You can use UserNotifications framework for local notifications
-        // or show in-app toasts
-        print("🔔 \(title): \(body)")
-        
-        // TODO: Implement actual notification display
-        // For now, just logging
-    }
     
     // MARK: - Cleanup
     
@@ -362,6 +364,18 @@ final class RealtimeManager {
         pusher?.disconnect()
         
         print("🔴 Pusher disconnected")
+    }
+
+    // MARK: - Notifications
+    private func showNotification(title: String, body: String) {
+        // Broadcast an in-app notification event that views can observe
+        let name = Notification.Name("RealtimeNotification")
+        NotificationCenter.default.post(name: name, object: nil, userInfo: [
+            "title": title,
+            "body": body
+        ])
+        // Optional debug log
+        print("🔔 Notification: \(title) — \(body)")
     }
 }
 

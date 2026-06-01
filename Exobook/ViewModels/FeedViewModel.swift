@@ -103,12 +103,23 @@ class FeedViewModel {
     
     // MARK: - Post Operations
     
-    func createPost(title: String, content: String, images: [String] = []) async throws {
+    func createPost(title: String, content: String, subject: String, images: [String] = []) async throws {
+        let currentUser = AuthenticationManager.shared.currentUser
+        let resolvedCampus = currentUser?.campus ?? userCampus
+        let resolvedYear = currentUser?.year ?? userYear
+        let resolvedSubject = subject.isEmpty ? "General - \(resolvedCampus)" : subject
         let request = CreatePostRequest(
             userId: currentUserId,
+            username: currentUser?.name ?? currentUser?.username ?? "User",
+            userPicture: currentUser?.picture ?? "",
+            userBio: currentUser?.bio ?? "",
+            userProgramme: currentUser?.program ?? "",
+            userYear: resolvedYear,
+            userCampus: resolvedCampus,
+            subject: resolvedSubject,
             title: title,
             content: content,
-            tags: nil
+            images: images
         )
         
         let newPost = try await exobookAPI.createPost(request)
